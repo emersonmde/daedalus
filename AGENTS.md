@@ -8,6 +8,7 @@
 ## Build, Test, and Development Commands
 - `cargo build --target aarch64-daedalus-os.json` – produces both the ELF and `kernel8.img` for Pi firmware/QEMU.
 - `qemu-system-aarch64 -M raspi4b -cpu cortex-a72 -serial stdio -display none -kernel target/aarch64-daedalus-os/debug/kernel8.img` – launches the Pi kernel in QEMU; capture the serial output for logs.
+- `cargo bootimage && qemu-system-x86_64 -drive format=raw,file=target/x86_64-daedalus/debug/bootimage-daedalus.bin` – legacy bootimage flow. The target spec has been renamed to `daedalus.json`, and the produced binary is `daedalus`; keep this path opt-in for anyone still validating the historical x86 image.
 - Install/update the nightly toolchain, `rust-src`, `llvm-tools-preview`, and `bootimage` per `README.md`.
 - Keep commands scripted (upcoming `xtask`) so contributors can mirror exact invocations.
 
@@ -31,6 +32,7 @@
 
 ## Tooling & CLI Usage
 - You MUST use the Codex built-in tools/commands (direct `ls`, `cat`, `rg`, file editors, etc.) before reaching for custom shell wrappers. The workspace already permits read operations without escalation.
+- Favor these built-in commands even for mundane tasks (listing files, showing snippets, searching) because each ad-hoc `bash` invocation needs approval; keep the workflow approval-light by leaning on the provided tools first.
 - If a shell wrapper (`bash -lc`, custom script) is genuinely required, clearly document the reason in your notes/PR so reviewers know why the builtin path was insufficient.
 
 ## Commit & Pull Request Guidelines
