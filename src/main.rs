@@ -11,9 +11,9 @@ fn panic(info: &PanicInfo) -> ! {
     loop {}
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn _start() -> ! {
-    println!("{}, {}!", "Hello", "world");
+    println!("{} to {}!", "Welcome", "Daedalus");
 
     loop {}
 }
