@@ -1,256 +1,144 @@
-# DaedalusOS Architecture & Multi-Arch Plan
+# DaedalusOS Architecture — Raspberry Pi 4
 
 > Status: design in progress (updated 2025-11-08)  
-> Targets: `x86_64` (Philipp Oppermann tutorial), `aarch64` (Raspberry Pi 4 Model B, Cortex-A72)
+> Target hardware: Raspberry Pi 4 Model B (BCM2711, Cortex-A72)  
+> Scope: single-board, single-target hobby kernel in Rust 2024
 
-This document captures the technical direction for evolving DaedalusOS from a tutorial-aligned x86_64 hobby kernel into a portable codebase that also boots on Raspberry Pi 4 hardware and QEMU. It consolidates lessons from:
-
-- **DaedalusOS (this repo)** — current Rust kernel built along [Philipp Oppermann’s “Writing an OS in Rust”](https://os.phil-opp.com/) series.
-- **armos** — private Raspberry Pi 4 proof-of-concept in C/assembly. Critical magic values and memory maps from that effort are documented here so the knowledge is no longer siloed.
-- **xyos** — legacy C kernel published at <https://github.com/emersonmde/xyos>, which demonstrates a structured arch/driver split, terminal stack, keyboard input, and shell loop.
-
-Anyone cloning this repository should be able to follow the plan below without access to the other codebases.
+This document is the single source of truth for how DaedalusOS boots and runs on Raspberry Pi 4. We borrow ideas from Philipp Oppermann’s tutorial where they make sense, but we are no longer trying to mirror his code 1:1 or to keep an x86 build alive. All architectural decisions, addresses, and testing expectations live here so future contributors can ship features without chasing tribal knowledge.
 
 ---
 
-## 1. Vision & Design Principles
+## 1. Vision & Design Tenets
 
-1. **Stay Tutorial-Compatible**  
-   Keep the x86_64 path aligned with the Phil Opp chapters. We should be able to continue stepping through the blog posts, verify code against his guidance, and run the provided test suites unchanged on the PC target.
+1. **Pi-Only, But Tutorial-Inspired** – Treat Phil Opp’s material as a catalog of good patterns (panic handling, printing, paging, etc.) and port the concepts to Pi when useful. Skip or modify anything that does not directly serve the Raspberry Pi bring-up.
+2. **Document Every One-Way Door** – The 2025-11-08 decision to drop x86 support is final; re-adding another architecture would require a brand-new plan section in this document. Any future boot-flow or memory-map change must describe rationale plus rollback steps before code lands.
+3. **Hardware Facts Over Assumptions** – Every magic number (MMIO base, clock divisor, linker address) must reference a datasheet or observed behavior. If we cannot verify something, record the uncertainty and a TODO for validation.
+4. **Keep Build/Test Simple** – One default cargo target spec (`aarch64-daedalus-os.json`) and one QEMU invocation. Scripts (`xtask`) can wrap them later, but the base commands must remain obvious.
+5. **Tight Feedback Loop** – Each milestone ends with a reproducible Pi build plus QEMU run, and the observed serial output is captured in `README.md` or the relevant PR.
 
-2. **First-Class Raspberry Pi 4 Support**  
-   Add an AArch64 build that produces a Pi-ready `kernel8.img`, boots via the Pi firmware or QEMU’s `-M raspi4b` machine, and eventually feature-parity with the tutorial milestones (exceptions, paging, heap, etc.).
+### One-Way Door: Pi-Only (2025-11-08)
 
-3. **Shared Kernel Logic, Pluggable Arch Layers**  
-   Treat architecture-specific code as thin shims (boot flow, MMIO drivers, interrupt glue) plugging into a common “kernel core” crate. This mirrors the structure of `xyos` but leverages Rust features (`cfg`, traits, modules) rather than Makefile logic.
-
-4. **Borrow Proven Ideas**  
-   - From *armos*: boot sequence, linker layout, UART/console bring-up, and QEMU/GDB recipes; carry over the exact register addresses (documented in §5).
-   - From *xyos*: directory layout (`arch/`, `drivers/`, shell), VGA terminal handling, PS/2 keyboard parsing, REPL semantics.
-   - From *Phil Opp*: memory-safe abstractions, deferred initialization via `lazy_static`, guard against UB, and the testing discipline.
-
-5. **Explicit Knowledge Gaps**  
-   Every assumption that lacks primary documentation must be called out for future validation. If we don’t know how, say, the GIC-400 distributor behaves under QEMU, the doc must state what still needs research and potential workarounds.
+- **Decision**: Remove x86_64 from active support and focus exclusively on Pi 4.  
+- **Impact**: Target specs, linker scripts, and runtime code assume `aarch64`. Historical x86 sources stay in git history but will rot.  
+- **Reversal Plan**: If we ever need another architecture, add a new ADR-style section here with scope, testing, and shared-crate layout before touching code.
 
 ---
 
-## 2. Target Architecture Overview
+## 2. Hardware & Memory Overview
 
-| Aspect | x86_64 (Current) | Raspberry Pi 4 / AArch64 (Planned) |
+| Component | Value / Notes |
+| --- | --- |
+| CPU | Quad-core Cortex-A72 (ARMv8-A, AArch64). Run only core 0 for now by masking `MPIDR_EL1`. |
+| Entry address | Pi firmware loads `kernel8.img` at physical `0x0008_0000` and jumps to `_start`. |
+| DRAM | 0x0000_0000 – 0x3FFF_FFFF (1 GiB on 1 GB model). Reserve 2 MiB after the image for stacks/heap until paging exists. |
+| MMIO window | 0xFE00_0000 – 0xFF80_0000. (Use `0xFE20_1000` for PL011; see below.) |
+| UART (PL011) | Base `0xFE20_1000`; registers: `DR` +0x00, `FR` +0x18, `IBRD` +0x24, `FBRD` +0x28, `LCRH` +0x2C, `CR` +0x30, `IMSC` +0x38, `ICR` +0x44. Baud 115200 @ 54 MHz: `IBRD=29`, `FBRD=19`, `LCRH=0x70`, `CR=0x301`. |
+| Interrupt controller | GIC-400 (distributor @ 0xFF84_1000). Not initialized yet; kernel runs in polling mode. |
+| Timer | System timer (0xFE00_3000) or ARM generic timer. Research TODO. |
+| GPU mailboxes | 0xFE00_B880. Useful later for property-channel queries (framebuffer, clock rate). |
+
+Keep this table updated whenever we validate a new peripheral or magic number.
+
+---
+
+## 3. Boot & Memory Layout
+
+1. **Firmware Stage** – `kernel8.img` is copied to RAM and execution begins at `_start` with MMU and caches off, SP undefined, and interrupts masked. We must set up our own stack and BSS clearing.
+2. **Assembly Stub** – In AArch64 assembly:  
+   - Zero `DAIF` bits we rely on (keep IRQs masked until vector table is ready).  
+   - Read `MPIDR_EL1` and park any core whose `Aff0 != 0`.  
+   - Point `SP` to a statically reserved stack (e.g., `_stack_start`).  
+   - Jump to `_start_rust`.
+3. **Rust Entry (`_start_rust`)** – Initializes `.bss`, configures the PL011 console, prints the boot banner, and eventually calls into `kernel_main` once we have a higher-level runtime.
+4. **Linker Script** – `linker.ld` must place `.text.boot` at `0x0008_0000` and keep `.bss`/`.data` contiguous. Preserve space for stacks (`.stack`) and align sections to 4 KiB.
+5. **Future Paging** – When enabling the MMU, identity-map the first 64 MiB, map the MMIO window as device memory, and use a higher-half layout later if desired. Document translation tables before landing the change.
+
+---
+
+## 4. Toolchain, Target Spec, and Artifacts
+
+- `rust-toolchain`: nightly (Rust 2024 edition).  
+- `.cargo/config.toml`:  
+  - `target = "aarch64-daedalus-os.json"`.  
+  - Set `build-std = ["core", "compiler_builtins"]` with `compiler-builtins-mem`.  
+  - Use `rust-lld` with `-Clink-arg=-Tlinker.ld`.  
+- `cargo build --target aarch64-daedalus-os.json` produces `target/aarch64-daedalus-os/debug/daedalus` (ELF). Post-build script copies/objcopies it to `kernel8.img`.  
+- QEMU smoke test:  
+  ```
+  qemu-system-aarch64 \
+    -M raspi4b -cpu cortex-a72 \
+    -serial stdio -display none \
+    -kernel target/aarch64-daedalus-os/debug/kernel8.img
+  ```
+- Expected output for the current milestone: `Welcome to Daedalus (Pi)` or whatever string the console prints. Record any change in `README.md` and `AGENTS.md`.
+
+Dependencies: `bootimage` (for tooling hooks), `llvm-tools-preview`, `rust-src`, `cargo-binutils` (optional for `objcopy`).
+
+---
+
+## 5. Console / UART Implementation Notes
+
+1. **Initialization Steps**:  
+   - Disable UART (`CR = 0`).  
+   - Mask interrupts (`IMSC = 0`).  
+   - Clear pending (`ICR = 0x7FF`).  
+   - Program divisors (`IBRD`, `FBRD`) for 115200 baud.  
+   - Configure line control (`LCRH = (1<<4) | (1<<5) | (1<<6)` => 8N1 + FIFO).  
+   - Enable UART, TX, RX (`CR = (1<<0) | (1<<8) | (1<<9)`).
+2. **Printing**: Poll `FR` bit 5 (`TXFF`) before writing to `DR`.  
+3. **Reading**: Poll `FR` bit 4 (`RXFE`) before reading `DR`; convert CRLF pairs when echoing.  
+4. **Synchronization**: Wrap the UART in a `spin::Mutex` so `print!` can reuse the Phil Opp-style macros. Replace the VGA-backed writer with `pl011::Console`.
+5. **Future Improvements**: Add interrupt-driven RX once the GIC bring-up completes; until then, busy-wait loops are acceptable.
+
+---
+
+## 6. Testing & Verification
+
+- **Build**: `cargo build --target aarch64-daedalus-os.json`.  
+- **QEMU**: command above; expect the welcome string on the serial console.  
+- **Hardware** (when ready): copy `kernel8.img` to the Pi’s FAT boot partition alongside `config.txt` with:  
+  ```
+  enable_uart=1
+  arm_64bit=1
+  kernel=kernel8.img
+  ```
+  Capture UART output via USB serial adapter at 115200 8N1.
+- **Logging Policy**: Every milestone documents the exact output we expect (e.g., `Hello from Daedalus`), plus any deviations seen during testing. If you cannot run QEMU locally, request the operator to run the command and report the output before closing the task.
+
+---
+
+## 7. Roadmap & Open Questions
+
+1. **Boot Stub Completion** – Land the AArch64 assembly entry, BSS zeroing, and PL011 console so the Rust code can print reliably.  
+2. **Exception Vectors** – Implement EL1 exception table (sync/IRQ/FIQ/SError) and basic handlers (panic on unexpected traps).  
+3. **Timer Selection** – Decide between system timer vs. generic timer, document CNTFRQ, and expose a ticking API for delays/tests.  
+4. **Memory Management** – Design the first identity-mapped page tables and enable the MMU; record cache/TLB requirements here.  
+5. **Allocator & Heap** – Port a simple bump allocator (tutorial-inspired) but tuned for Pi memory layout.  
+6. **Device IO** – Add mailbox property interface for querying board serial/clock; plan for framebuffer init if we want graphical output.  
+7. **Future Multi-Core** – Research GIC-400 bring-up and mailbox-based secondary-core start. Only pursue after single-core kernel is stable.
+
+### Research TODOs
+
+| Topic | Status | Notes |
 | --- | --- | --- |
-| Toolchain | `nightly-x86_64-unknown-none`, `bootimage` runner | `nightly-aarch64-unknown-none` (no std), custom linker |
-| Boot flow | Bootloader crate loads ELF, jumps to `_start` | Pi firmware loads `kernel8.img` at `0x0008_0000`, executes `_start` |
-| Console | VGA text buffer (0xB8000) | PL011 UART @ `0xFE20_1000` (see §5) routed to QEMU serial |
-| Interrupt controller | PIC/APIC (future tutorial steps) | GIC-400 (need research) |
-| Memory map | Provided by bootloader; identity map low 1 MiB | Custom page tables mapping RAM + peripherals (0xFE00_0000 block) |
+| GIC-400 init | Not started | Need Arm ARM + Raspberry Pi docs; until then, keep IRQs masked and poll devices. |
+| Timer source | Partially known | Determine reliable CNTFRQ. Raspberry Pi firmware typically reports 54 MHz but must confirm via mailbox or `cntfrq_el0`. |
+| Cache maintenance | Not started | Document which barriers are required before touching MMIO or enabling the MMU. |
+| USB / Keyboard | Deferred | Serial console suffices. USB host stack can wait until after basic multitasking. |
 
 ---
 
-## 3. Workspace & Code Organization
+## 8. Documentation Hygiene
 
-### 3.1 Cargo Workspace Layout
+After every milestone (build + QEMU validation), update:
 
-```
-daedalus-os/
-├─ Cargo.toml               # workspace definition
-├─ ARCHITECTURE.md          # (this document)
-├─ kernels/
-│  ├─ core/                 # arch-independent kernel logic (panic, scheduler, shell, traits)
-│  ├─ arch-x86_64/          # Phil Opp tutorial path (currently existing code)
-│  └─ arch-aarch64/         # Raspberry Pi 4 implementation
-├─ xtask/                   # optional automation crate for builds/tests
-└─ tools/                   # scripts, linker files, docs
-```
+1. `README.md` – exact commands and expected serial output.  
+2. `AGENTS.md` – any new process requirements, especially decisions that feel like one-way doors.  
+3. `ARCHITECTURE.md` – new peripherals, address maps, or behavioral insights.
 
-Key points:
-
-- `kernels/core` exposes traits (console, timer, interrupt controller), shared data structures, shell logic, allocator scaffolding, etc.
-- `kernels/arch-*` provide `pub fn init()` entry points satisfying the traits and hooking up the boot flow.
-- Top-level `src/main.rs` becomes a thin shim selecting the right arch module via `cfg`.
-
-### 3.2 Target Specifications
-
-- **x86_64**: keep `x86_64-daedalus-os.json` as-is. Boot via `bootimage` until we intentionally replace it.
-- **aarch64**: add `aarch64-daedalus-os.json` with:
-  - `llvm-target = "aarch64-unknown-none"`
-  - `features = "+strict-align,+neon"`
-  - `disable-redzone = true` (match Rust bare-metal best practices)
-  - `panic-strategy = "abort"`
-- Provide `.cargo/config.toml` entries to map custom targets to runner commands (`bootimage runner` for x86, `cargo xtask run-pi` for Pi).
+Failure to update these documents blocks the milestone from being “done.”
 
 ---
 
-## 4. Boot Flow Designs
+This document should stay living—edit it whenever new facts emerge or when we complete roadmap items. Keeping it current is mandatory standard work.
 
-### 4.1 x86_64 (Status Quo)
-
-- Bootloader crate sets up paging and stack, jumps to `_start`.
-- `_start` prints “Hello, world” via VGA driver and loops.
-- Next tutorial steps (IDT, paging, heap, etc.) integrate naturally; no immediate changes.
-
-### 4.2 Raspberry Pi 4 (Derived from armos)
-
-1. **Firmware**: `kernel8.img` is loaded at physical `0x0008_0000`. We must ensure our linker places `.text.boot` at that address.
-2. **Assembly stub** (ported from `armos/src/boot.S`):
-   - Read `MPIDR_EL1` to allow only core 0 to continue; secondary cores park in `wfe`.
-   - Zero `.bss` using `__bss_start`/`__bss_end`.
-   - Set stack pointer near `_start` (temporary) before calling Rust `_start_rust`.
-3. **Rust entry**:
-   - Initialize per-core stacks (future multi-core work).
-   - Set up UART (PL011) so early `println!` works.
-   - Optionally set exception vector base (`VBAR_EL1`) once vector table exists.
-4. **Linker script** (`tools/aarch64/kernel.ld`):
-   ```ld
-   ENTRY(_start)
-   SECTIONS {
-       . = 0x00080000;
-       .text.boot : { *(.text.boot) }
-       .text      : { *(.text*) }
-       .rodata    : { *(.rodata*) }
-       .data      : { *(.data*) }
-       __bss_start = .;
-       .bss       : { *(.bss*) *(COMMON) }
-       __bss_end = .;
-   }
-   ```
-   - Matches the proven layout from armos’s `kernel.ld`.
-
-5. **QEMU launch** (from armos Makefile):
-   ```
-   qemu-system-aarch64 \
-     -M raspi4b \
-     -cpu cortex-a72 \
-     -smp 4 \
-     -kernel build/kernel.elf \
-     -serial stdio
-   ```
-6. **GDB recipe**: start QEMU with `-s -S` and attach `aarch64-elf-gdb` (already scripted in armos; we will mirror this via `xtask gdb-pi`).
-
----
-
-## 5. Raspberry Pi 4 Magic Values (from armos)
-
-These addresses cost real lab time to verify. They must stay documented here for future contributors.
-
-| Block | Address | Notes |
-| --- | --- | --- |
-| **Firmware entry** | `0x0008_0000` | Start of `kernel8.img` in physical RAM. `_start` must live here. |
-| **Peripherals base** | `0xFE00_0000` | Low-peripheral MMIO window on Pi 4 (BCM2711). All device offsets are relative to this. |
-| **GPIO registers** | `GPFSEL1 = base + 0x200004`<br>`GPPUD = base + 0x200094`<br>`GPPUDCLK0 = base + 0x200098` | Needed to mux pins 14/15 into UART ALT0 function and disable pulls. |
-| **PL011 UART0** | `DR = base + 0x201000`<br>`FR = base + 0x201018`<br>`IBRD = base + 0x201024`<br>`FBRD = base + 0x201028`<br>`LCRH = base + 0x20102C`<br>`CR = base + 0x201030`<br>`IMSC = base + 0x201038`<br>`ICR = base + 0x201044` | Verified with console loopback; FR bit 5 = TXFF, bit 4 = RXFE. Baud divisor for 115200 at 54 MHz clock: IBRD=29, FBRD=19. |
-| **Stack init** | `_start` page (via `adrp`) used as temporary SP before Rust runtime sets real stacks. |
-| **Core filtering** | `MPIDR_EL1[1:0]` used to keep only core 0 running (`and x1, x1, #3; cbz x1, setup`). |
-
-Any future peripheral (timer, mailbox, GIC) must have its base and tested offsets appended to this table once validated.
-
----
-
-## 6. HAL & Trait Abstractions
-
-Define traits in `kernels/core/src/hal`:
-
-- `Console`: `fn put_byte(u8)`, `fn get_byte() -> Option<u8>`, `fn flush()`.
-- `InterruptController`: `fn init()`, `fn enable(irq)`, `fn disable(irq)`, `fn ack(irq)`.
-- `Timer`: monotonic tick source for scheduling/tests.
-- `MemoryManager`: architecture-specific paging helpers (e.g., `init_identity_map()`, `map_region()`).
-
-Implementations:
-
-- `arch-x86_64` uses VGA writer + legacy PIC/APIC when tutorial reaches interrupts.
-- `arch-aarch64` uses PL011 console, GIC stubs (polling until implemented), and page-table builder derived from Raspberry Pi Rust tutorials.
-
-`println!` macro should target the trait rather than a global static. Keep `lazy_static` locks per console implementation.
-
----
-
-## 7. Build & Tooling Strategy
-
-1. **Workspace commands** (managed via `xtask` crate or scripts):
-   - `cargo xtask run-x86-qemu`
-   - `cargo xtask run-pi-qemu`
-   - `cargo xtask gdb-pi`
-   - `cargo xtask build-all` (ensures both targets build before pushing).
-2. **Artifacts**:
-   - x86: `target/x86_64-daedalus-os/debug/bootimage-daedalus-os.bin`
-   - Pi: `target/aarch64-daedalus-os/debug/kernel.elf` + `kernel8.img`
-3. **Testing**:
-   - Keep Phil Opp’s custom test runner for x86.
-   - For Pi, rely on host-side unit tests for shared logic until we build a QEMU-based smoke test harness (future TODO).
-   - **Iteration policy**: every milestone must end with reproducible build, run, and QEMU steps for each affected target. Provide the precise commands (`cargo bootimage` + `qemu-system-x86_64 …`, or `cargo build --target aarch64-daedalus-os.json` + `qemu-system-aarch64 -M raspi4b …`) and describe the expected output (e.g., serial prints `Hello from Daedalus`). If you cannot run QEMU locally, ask the operator to run those commands and report back before closing the milestone.
-
----
-
-## 8. Task Breakdown
-
-1. **Refactor to workspace**  
-   - Move current code into `kernels/arch-x86_64`.  
-   - Introduce `kernels/core` crate exporting traits + re-export macros.  
-   - Update `Cargo.toml` accordingly.  
-   - *Risk*: keep `bootimage` runner working; verify with `cargo bootimage`.
-
-2. **Author `ARCHITECTURE.md`** ✅ (this document).
-
-3. **Add AArch64 target spec & linker**  
-   - Create `aarch64-daedalus-os.json` + `kernel.ld`.  
-   - Write assembly `_start` (global_asm).  
-   - Provide `build.rs` or `xtask` logic to link with `rust-lld`.
-
-4. **Port UART/console**  
-   - Implement PL011 driver in Rust using MMIO addresses above.  
-   - Provide safe wrapper struct with volatile reads/writes.  
-   - Integrate into `println!` flow; ensure concurrency safety.
-
-5. **Boot “Hello, world” on Pi**  
-   - Minimal `_start_rust` that initializes console and prints.  
-   - Validate on QEMU with command in §4.2.
-
-6. **Abstract tutorials**  
-   - For each Phil Opp chapter starting with “VGA Text Mode”, mirror functionality:  
-     - Exceptions → AArch64 vector table.  
-     - Paging → Pi stage-1 MMU set-up.  
-     - Heap → share allocator logic over both targets.  
-   - Record divergences when hardware differs (e.g., PIC vs. GIC).
-
-7. **Shell & Input**  
-   - Port `xyos` shell to Rust.  
-   - On x86, re-implement PS/2 driver.  
-   - On Pi, use UART input first; note USB keyboard as future work.
-
-8. **Future: Multi-core & Interrupts**  
-   - Research GIC-400 initialization (needs documentation).  
-   - Implement mailbox-based secondary-core boot for Pi.  
-   - Mirror APIC handling for x86 per tutorial.
-
----
-
-## 9. Known Unknowns & Research TODOs
-
-| Topic | Status | Notes / Workaround |
-| --- | --- | --- |
-| **GIC-400 bring-up** | Not researched | Need Arm docs / `qemu-system-aarch64` behavior. Until then, run in polling mode without external interrupts. |
-| **Timer source on Pi** | Partially known | Probably use system timer or ARM generic timer. Need reliable CNTFRQ value (54 MHz?) from firmware. |
-| **USB keyboard on Pi** | Not planned | Serial console suffices; note future need for USB host stack if VGA/keyboard desired. |
-| **Actual hardware boot** | Pending | QEMU path defined. For real Pi we must prepare FAT partition, config.txt enabling 64-bit mode, copy `kernel8.img`. Document once tested. |
-| **Rust target availability** | Assumed | Verify `rustup target add aarch64-unknown-none`. If not, use `aarch64-unknown-none-softfloat` or build custom target spec. |
-
----
-
-## 10. References
-
-- Philipp Oppermann’s blog: <https://os.phil-opp.com/>
-- Xyos repo: <https://github.com/emersonmde/xyos>
-- Raspberry Pi Rust OS Tutorials (useful patterns for MMU, UART, interrupts): <https://github.com/rust-embedded/rust-raspberrypi-OS-tutorials>
-- QEMU Raspberry Pi docs: <https://qemu.readthedocs.io/en/v9.2.4/system/arm/raspi.html>
-
----
-
-## 11. Next Steps Checklist
-
-- [ ] Create Cargo workspace & move code into `kernels/`.
-- [ ] Add `aarch64-daedalus-os.json` & linker script.
-- [ ] Port armos boot stub into Rust, integrating documented addresses.
-- [ ] Implement PL011 console + shared `println!`.
-- [ ] Produce first Pi “Hello from Daedalus” via QEMU.
-- [ ] Mirror upcoming Phil Opp chapters across both targets, updating this document with new hardware findings.
-
-Please update this document whenever we validate new hardware details (e.g., timers, caches, DMA) so future contributors do not need access to private repos.
