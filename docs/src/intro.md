@@ -50,10 +50,19 @@ cargo run
 # Run tests
 cargo test
 
+# Run tests with deterministic timing (slower, but more reproducible in CI)
+QEMU_DETERMINISTIC=1 cargo test
+
 # Generate kernel8.img for hardware
 cargo build --release
 cargo objcopy --release -- -O binary kernel8.img
 ```
+
+### Timing Tests in CI
+
+If timing tests become flaky in GitHub Actions or other CI environments, you can enable deterministic timing mode using `QEMU_DETERMINISTIC=1`. This uses QEMU's `-icount` flag to decouple the guest clock from the host, making timing perfectly reproducible at the cost of 10-100x slower execution (disables KVM hardware acceleration).
+
+Current timing tests use 25% tolerance to handle normal CI variability without this flag. See `src/drivers/timer.rs:231` for details.
 
 ## Design Tenets
 

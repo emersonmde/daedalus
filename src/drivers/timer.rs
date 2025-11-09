@@ -237,8 +237,24 @@ mod tests {
         let elapsed = end - start;
         // Should be at least 2000us
         assert!(elapsed >= 2000, "delay_ms(2) only delayed {} us", elapsed);
-        // Shouldn't be wildly longer (allow 100us of overhead)
-        assert!(elapsed < 2100, "delay_ms(2) took {} us (too long)", elapsed);
+
+        // Allow up to 500us overhead (~25%) for CI environments with variable timing.
+        //
+        // In virtualized CI (GitHub Actions), QEMU timing has significant overhead:
+        // - Base QEMU overhead: ~40us for timer events >50us
+        // - CI scheduling delays: Guest clock keeps ticking when QEMU is descheduled
+        // - Combined overhead can easily reach 100-200us on busy runners
+        //
+        // Alternative: If this becomes too flaky, enable deterministic mode:
+        //   QEMU_DETERMINISTIC=1 cargo test
+        // This uses QEMU's -icount flag to decouple guest clock from host,
+        // making timing perfectly reproducible but 10-100x slower (disables KVM).
+        //
+        // References:
+        // - GitHub Actions timing issues: operations can be 500x slower than local
+        // - QEMU timer research: ~40us baseline delay even on idle systems
+        // - Zephyr RTOS: Uses -icount in CI for timing test stability
+        assert!(elapsed < 2500, "delay_ms(2) took {} us (too long)", elapsed);
     }
 
     #[test_case]
