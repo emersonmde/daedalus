@@ -6,11 +6,14 @@
 - Build artifacts land in `target/`. Do not commit anything from that directory.
 
 ## Build, Test, and Development Commands
-- `cargo build --target aarch64-daedalus-os.json` – produces both the ELF and `kernel8.img` for Pi firmware/QEMU.
-- `qemu-system-aarch64 -M raspi4b -cpu cortex-a72 -serial stdio -display none -kernel target/aarch64-daedalus-os/debug/kernel8.img` – launches the Pi kernel in QEMU; capture the serial output for logs.
-- `cargo bootimage && qemu-system-x86_64 -drive format=raw,file=target/x86_64-daedalus/debug/bootimage-daedalus.bin` – legacy bootimage flow. The target spec has been renamed to `daedalus.json`, and the produced binary is `daedalus`; keep this path opt-in for anyone still validating the historical x86 image.
-- Install/update the nightly toolchain, `rust-src`, `llvm-tools-preview`, and `bootimage` per `README.md`.
-- Keep commands scripted (upcoming `xtask`) so contributors can mirror exact invocations.
+- `cargo build` – builds the kernel ELF binary (target configured in `.cargo/config.toml`)
+- `cargo run` – builds and runs the kernel in QEMU (uses `qemu-runner.sh`)
+- `cargo test --bin daedalus` – runs tests in QEMU; verify tests show `[ok]` in output
+- `cargo objcopy --release -- -O binary kernel8.img` – generates `kernel8.img` for real Pi hardware (only needed for SD card deployment, not QEMU)
+- Expected `cargo run` output: `Welcome to Daedalus (Pi)!`
+- Expected `cargo test` output: Test names followed by `[ok]` for each passing test
+- Install/update the nightly toolchain, `rust-src`, `llvm-tools`, and `cargo-binutils` per `README.md`
+- Keep commands scripted (upcoming `xtask`) so contributors can mirror exact invocations
 
 ## Coding Style & Naming Conventions
 - Rust 2024 edition; nightly toolchain pinned via `rust-toolchain`.
@@ -24,15 +27,17 @@
 - We borrow ideas from Phil Opp’s tutorial, but we are not following it chapter-by-chapter. Note which concepts you ported and why instead of referencing chapter numbers.
 
 ## Testing Guidelines
-- Reuse Phil Opp’s testing ideas when they help, but build only the infrastructure that benefits the Pi target today.
-- Name tests after the behavior they cover, e.g., `test_writer_scrolls_on_newline`.
-- After every iteration or milestone, build and run the Pi target: `cargo build --target aarch64-daedalus-os.json` then `qemu-system-aarch64` as above. Capture the serial output and have the operator confirm the expected string (e.g., “Please verify the UART prints `Hello from Daedalus`”). Do not close the iteration until that feedback is recorded.
-- When new host-side tests or QEMU smoke tests are added, document how to run them and keep them opt-in so they do not block the basic Pi build.
+- Use Phil Opp's custom test framework pattern with ARM-specific adjustments (semihosting instead of x86 debug ports).
+- Name tests after the behavior they cover, e.g., `test_println`, `test_memory_allocation`.
+- Mark test functions with `#[test_case]` attribute.
+- After every iteration or milestone, run `cargo test --bin daedalus` and verify all tests show `[ok]`.
+- After every iteration or milestone, run `cargo run` and confirm the expected UART output (currently `Welcome to Daedalus (Pi)!`).
+- When adding new tests, ensure they work in the bare-metal environment (no_std, no heap unless allocator is implemented).
+- Tests run in QEMU using ARM semihosting for exit; note that QEMU exits with status 1 even on success due to semihosting limitations.
 - After milestone testing completes, update `README.md`, `ARCHITECTURE.md`, and this file with any new commands, architectural notes, or behavior changes uncovered during the work.
 
 ## Tooling & CLI Usage
-- You MUST use the Codex built-in tools/commands (direct `ls`, `cat`, `rg`, file editors, etc.) before reaching for custom shell wrappers. The workspace already permits read operations without escalation.
-- Favor these built-in commands even for mundane tasks (listing files, showing snippets, searching) because each ad-hoc `bash` invocation needs approval; keep the workflow approval-light by leaning on the provided tools first.
+- Favor built-in tools over custom bash comamnds even for mundane tasks (listing files, showing snippets, searching) because each ad-hoc `bash` invocation needs approval; keep the workflow approval-light by leaning on the provided tools first.
 - If a shell wrapper (`bash -lc`, custom script) is genuinely required, clearly document the reason in your notes/PR so reviewers know why the builtin path was insufficient.
 
 ## Commit & Pull Request Guidelines

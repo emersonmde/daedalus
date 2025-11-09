@@ -57,22 +57,23 @@ Keep this table updated whenever we validate a new peripheral or magic number.
 
 ## 4. Toolchain, Target Spec, and Artifacts
 
-- `rust-toolchain`: nightly (Rust 2024 edition).  
-- `.cargo/config.toml`:  
-  - `target = "aarch64-daedalus-os.json"`.  
-  - Set `build-std = ["core", "compiler_builtins"]` with `compiler-builtins-mem`.  
-  - Use `rust-lld` with `-Clink-arg=-Tlinker.ld`.  
-- `cargo build --target aarch64-daedalus-os.json` produces `target/aarch64-daedalus-os/debug/daedalus` (ELF). Post-build script copies/objcopies it to `kernel8.img`.  
-- QEMU smoke test:  
+- `rust-toolchain`: nightly (Rust 2024 edition).
+- `.cargo/config.toml`:
+  - `target = "aarch64-daedalus.json"`.
+  - Set `build-std = ["core", "compiler_builtins"]` with `compiler-builtins-mem`.
+  - Use `rust-lld` with `-Clink-arg=-Tlinker.ld`.
+- `cargo build --target aarch64-daedalus.json` produces `target/aarch64-daedalus/debug/daedalus` (ELF).
+- `cargo objcopy --target aarch64-daedalus.json -- -O binary target/aarch64-daedalus/debug/kernel8.img` converts ELF to raw binary.
+- QEMU smoke test:
   ```
   qemu-system-aarch64 \
     -M raspi4b -cpu cortex-a72 \
     -serial stdio -display none \
-    -kernel target/aarch64-daedalus-os/debug/kernel8.img
+    -kernel target/aarch64-daedalus/debug/kernel8.img
   ```
-- Expected output for the current milestone: `Welcome to Daedalus (Pi)` or whatever string the console prints. Record any change in `README.md` and `AGENTS.md`.
+- Expected output for the current milestone: `Welcome to Daedalus (Pi)!`. Record any change in `README.md` and `AGENTS.md`.
 
-Dependencies: `bootimage` (for tooling hooks), `llvm-tools-preview`, `rust-src`, `cargo-binutils` (optional for `objcopy`).
+Dependencies: `llvm-tools` (rustup component), `rust-src` (rustup component), `cargo-binutils` (cargo install).
 
 ---
 
@@ -107,15 +108,53 @@ Dependencies: `bootimage` (for tooling hooks), `llvm-tools-preview`, `rust-src`,
 
 ---
 
-## 7. Roadmap & Open Questions
+## 7. Testing
 
-1. **Boot Stub Completion** – Land the AArch64 assembly entry, BSS zeroing, and PL011 console so the Rust code can print reliably.  
-2. **Exception Vectors** – Implement EL1 exception table (sync/IRQ/FIQ/SError) and basic handlers (panic on unexpected traps).  
-3. **Timer Selection** – Decide between system timer vs. generic timer, document CNTFRQ, and expose a ticking API for delays/tests.  
-4. **Memory Management** – Design the first identity-mapped page tables and enable the MMU; record cache/TLB requirements here.  
-5. **Allocator & Heap** – Port a simple bump allocator (tutorial-inspired) but tuned for Pi memory layout.  
-6. **Device IO** – Add mailbox property interface for querying board serial/clock; plan for framebuffer init if we want graphical output.  
-7. **Future Multi-Core** – Research GIC-400 bring-up and mailbox-based secondary-core start. Only pursue after single-core kernel is stable.
+### Current Test Setup (2025-11-08)
+
+- **Test Framework**: Custom test framework using Rust's `custom_test_frameworks` feature
+- **Test Execution**: `cargo test --bin daedalus` builds test binary and runs it in QEMU
+- **Test Runner**: `qemu-runner.sh` converts ELF to binary and launches QEMU with semihosting
+- **Exit Mechanism**: ARM semihosting (HLT #0xF000) - Note: QEMU exits with status 1 even on success
+- **Verification**: Tests print `[ok]` on success; manually verify output shows all tests passing
+
+### Running Tests
+
+```bash
+cargo test --bin daedalus
+```
+
+Expected output shows test names followed by `[ok]`:
+```
+Running 2 tests
+daedalus::test_println...    test_println output
+[ok]
+daedalus::trivial_assertion...    [ok]
+```
+
+### Adding New Tests
+
+Use the `#[test_case]` attribute on functions:
+
+```rust
+#[test_case]
+fn test_something() {
+    assert_eq!(2 + 2, 4);
+}
+```
+
+---
+
+## 8. Roadmap & Open Questions
+
+1. **Boot Stub** – ✅ COMPLETE - AArch64 assembly entry, BSS zeroing, PL011 console working
+2. **Testing Infrastructure** – ✅ COMPLETE - Custom test framework with QEMU integration
+3. **Exception Vectors** – Implement EL1 exception table (sync/IRQ/FIQ/SError) and basic handlers (panic on unexpected traps)
+4. **Timer Selection** – Decide between system timer vs. generic timer, document CNTFRQ, and expose a ticking API for delays/tests
+5. **Memory Management** – Design the first identity-mapped page tables and enable the MMU; record cache/TLB requirements here
+6. **Allocator & Heap** – Port a simple bump allocator (tutorial-inspired) but tuned for Pi memory layout
+7. **Device IO** – Add mailbox property interface for querying board serial/clock; plan for framebuffer init if we want graphical output
+8. **Future Multi-Core** – Research GIC-400 bring-up and mailbox-based secondary-core start. Only pursue after single-core kernel is stable
 
 ### Research TODOs
 
@@ -128,15 +167,15 @@ Dependencies: `bootimage` (for tooling hooks), `llvm-tools-preview`, `rust-src`,
 
 ---
 
-## 8. Documentation Hygiene
+## 9. Documentation Hygiene
 
 After every milestone (build + QEMU validation), update:
 
-1. `README.md` – exact commands and expected serial output.  
-2. `AGENTS.md` – any new process requirements, especially decisions that feel like one-way doors.  
+1. `README.md` – exact commands and expected serial output.
+2. `AGENTS.md` – any new process requirements, especially decisions that feel like one-way doors.
 3. `ARCHITECTURE.md` – new peripherals, address maps, or behavioral insights.
 
-Failure to update these documents blocks the milestone from being “done.”
+Failure to update these documents blocks the milestone from being "done."
 
 ---
 

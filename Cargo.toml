@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 lazy_static = { version = "1.0", features = ["spin_no_std"] }
 spin = "0.5.2"
+volatile = "0.2.6"
 
 [[bin]]
 name = "daedalus"
