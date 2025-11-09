@@ -19,14 +19,6 @@
 
 DaedalusOS is my personal playground for learning low-level Rust by bringing up a tiny kernel on the Raspberry Pi 4. I'm porting ideas I like from Philipp Oppermann's blog and other hobby kernels, but the project exists purely so I can experiment, break things, and understand how the hardware works.
 
-<div align="center">
-
-### 🎯 Current Status: **Phase 1 Complete** - Interactive Shell with 25 Passing Tests
-
-![Top Languages](https://github-readme-stats.vercel.app/api/top-langs/?username=emersonmde&repo=daedalus&layout=compact&theme=dark&hide_border=true)
-
-</div>
-
 ---
 
 ## ✨ Features
@@ -36,7 +28,7 @@ DaedalusOS is my personal playground for learning low-level Rust by bringing up 
 | 🚀 Core Features | 🔧 Hardware Support | 📚 Development |
 |:---:|:---:|:---:|
 | `#![no_std]` Bare Metal | PL011 UART Driver | mdBook Documentation |
-| Exception Handling (EL2) | Raspberry Pi 4B (BCM2711) | 25 Integration Tests |
+| Exception Handling (EL2) | Raspberry Pi 4B (BCM2711) | Comprehensive Test Suite |
 | Interactive Shell (REPL) | AArch64 (Cortex-A72) | GitHub Actions CI/CD |
 | Custom Linker Script | QEMU 9.0+ Emulation | Rust 2024 Edition |
 

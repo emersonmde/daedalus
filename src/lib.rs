@@ -14,8 +14,6 @@ pub mod qemu;
 pub mod shell;
 
 use core::fmt::{self, Write};
-
-#[cfg(test)]
 use core::panic::PanicInfo;
 
 // Global allocator
@@ -31,8 +29,15 @@ fn alloc_error_handler(layout: alloc::alloc::Layout) -> ! {
 #[cfg(test)]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    println!("[failed]\n");
-    println!("Error: {}\n", info);
+    test_panic_handler(info)
+}
+
+/// Panic handler for tests - used by both lib tests and integration tests
+pub fn test_panic_handler(info: &PanicInfo) -> ! {
+    println!("\x1b[31mFAILED\x1b[0m");
+    println!();
+    println!("Error: {}", info);
+    println!();
     qemu::exit(qemu::ExitCode::Failed);
 }
 
@@ -102,17 +107,26 @@ where
     T: Fn(),
 {
     fn run(&self) {
-        print!("{}...\t", core::any::type_name::<T>());
+        print!("test {} ... ", core::any::type_name::<T>());
         self();
-        println!("[ok]");
+        // Print "ok" in green like cargo test
+        println!("\x1b[32mok\x1b[0m");
     }
 }
 
 pub fn test_runner(tests: &[&dyn Testable]) {
-    println!("Running {} tests", tests.len());
+    println!();
+    println!("running {} tests", tests.len());
+    println!();
     for test in tests {
         test.run();
     }
+    println!();
+    print!("test result: \x1b[32mok\x1b[0m. ");
+    println!(
+        "{} passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n",
+        tests.len()
+    );
     qemu::exit(qemu::ExitCode::Success);
 }
 
@@ -193,6 +207,7 @@ fn test_uart_write_byte() {
     writer.write_byte(b'A');
     writer.write_byte(b'B');
     writer.write_byte(b'C');
+    writer.write_byte(b'\n');
 }
 
 #[test_case]
@@ -200,7 +215,7 @@ fn test_uart_write_string() {
     use drivers::uart::WRITER;
 
     let mut writer = WRITER.lock();
-    writer.write_string("UART test string");
+    writer.write_string("UART test string\n");
 }
 
 #[test_case]
@@ -220,7 +235,7 @@ fn test_uart_multiple_init() {
     let mut writer = WRITER.lock();
     writer.init();
     writer.init();
-    writer.write_string("Still works");
+    writer.write_string("Still works\n");
 }
 
 // ============================================================================
@@ -360,7 +375,6 @@ fn test_shell_parse_empty_line() {
 fn test_shell_parse_multiple_spaces() {
     use shell::Command;
 
-    // Args preserve all spacing after first space (including leading spaces)
     let cmd = Command::parse("echo    test   with   spaces").unwrap();
     assert_eq!(cmd.name, "echo");
     assert_eq!(cmd.args, "   test   with   spaces");
