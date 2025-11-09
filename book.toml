@@ -3,15 +3,15 @@ title = "DaedalusOS Documentation"
 authors = ["Matthew"]
 language = "en"
 description = "Reference documentation for DaedalusOS - a bare-metal Rust kernel for Raspberry Pi 4"
-src = "book/src"
+src = "docs/src"
 
 [build]
-build-dir = "book/book"
+build-dir = "docs/book"
 
 [output.html]
 default-theme = "rust"
 git-repository-url = "https://github.com/yourusername/daedalus-os"
-edit-url-template = "https://github.com/yourusername/daedalus-os/edit/main/book/src/{path}"
+edit-url-template = "https://github.com/yourusername/daedalus-os/edit/main/docs/src/{path}"
 no-section-label = true  # Remove chapter numbering
 
 [output.html.search]

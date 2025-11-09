@@ -17,6 +17,7 @@
 - [Boot Sequence](architecture/boot-sequence.md)
 - [Exception Handling](architecture/exceptions.md)
 - [Linker Script](architecture/linker-script.md)
+- [Heap Allocator](architecture/allocator.md)
 - [MMU & Paging](architecture/mmu-paging.md)
 
 # External References

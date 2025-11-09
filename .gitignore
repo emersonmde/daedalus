@@ -1,4 +1,4 @@
 /target
-/book/book
-/book/src/rustdoc
+/docs/book
+/docs/src/rustdoc
 /kernel8.img

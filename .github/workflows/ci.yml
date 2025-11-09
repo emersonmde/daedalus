@@ -160,13 +160,13 @@ jobs:
 
       - name: Copy cargo docs into mdbook output
         run: |
-          mkdir -p book/book/rustdoc
-          cp -r target/aarch64-daedalus/doc/* book/book/rustdoc/
+          mkdir -p docs/book/rustdoc
+          cp -r target/aarch64-daedalus/doc/* docs/book/rustdoc/
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: book/book
+          path: docs/book
 
   docs-deploy:
     name: Deploy Documentation

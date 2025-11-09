@@ -313,12 +313,12 @@ mdbook serve
 Or open the static files directly:
 
 ```bash
-open book/book/index.html
+open docs/book/index.html
 ```
 
 ### Documentation Files
 
-- **[book/src/](book/src/)** - Comprehensive project documentation (hardware specs, architecture, design decisions, roadmap)
+- **[docs/src/](docs/src/)** - Comprehensive project documentation (hardware specs, architecture, design decisions, roadmap)
 - **Rust API docs** - Generated from source via `cargo doc`, nested at `/rustdoc` in built site
 - **[CLAUDE.md](CLAUDE.md)** - AI assistant routing guide for navigating documentation
 - **[README.md](README.md)** (this file) - Quick start guide and basic project structure

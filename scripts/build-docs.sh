@@ -10,9 +10,9 @@ RUSTDOCFLAGS="--enable-index-page -Zunstable-options" \
     cargo doc --no-deps --document-private-items
 
 echo "Copying cargo docs into mdbook output..."
-mkdir -p book/book/rustdoc
-cp -r target/aarch64-daedalus/doc/* book/book/rustdoc/
+mkdir -p docs/book/rustdoc
+cp -r target/aarch64-daedalus/doc/* docs/book/rustdoc/
 
 echo "✓ Documentation built successfully!"
-echo "  View at: book/book/index.html"
+echo "  View at: docs/book/index.html"
 echo "  Or run: mdbook serve"

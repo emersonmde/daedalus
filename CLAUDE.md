@@ -35,46 +35,47 @@ This runs:
 - `cargo test` - Run all tests (failures fail)
 - `cargo build --release` - Verify release build (errors fail, warnings shown)
 
-**QEMU Requirement**: 9.0+ for raspi4b machine type (see `book/src/decisions/adr-002-qemu-9.md`)
+**QEMU Requirement**: 9.0+ for raspi4b machine type (see `docs/src/decisions/adr-002-qemu-9.md`)
 
 ## Documentation Map
 
-All documentation is in **`book/src/`** organized as reference wiki (not linear).
+All documentation is in **`docs/src/`** organized as reference wiki (not linear).
 
 ### Hardware Specifications
 
 **When**: Implementing drivers, debugging hardware issues
-- **Memory map & addresses**: `book/src/hardware/memory-map.md`
-- **UART (PL011)**: `book/src/hardware/uart-pl011.md` (includes baud rate calc, registers)
-- **GPIO**: `book/src/hardware/gpio.md` (stub - not yet implemented)
-- **Timer**: `book/src/hardware/timer.md` (stub)
-- **GIC interrupts**: `book/src/hardware/gic.md` (stub - Phase 3)
+- **Memory map & addresses**: `docs/src/hardware/memory-map.md`
+- **UART (PL011)**: `docs/src/hardware/uart-pl011.md` (includes baud rate calc, registers)
+- **GPIO**: `docs/src/hardware/gpio.md` (stub - not yet implemented)
+- **Timer**: `docs/src/hardware/timer.md` (stub)
+- **GIC interrupts**: `docs/src/hardware/gic.md` (stub - Phase 3)
 
 ### Architecture & Boot
 
 **When**: Understanding boot flow, exceptions, memory layout
-- **Boot sequence**: `book/src/architecture/boot-sequence.md` (firmware → ASM → Rust)
-- **Exception handling**: `book/src/architecture/exceptions.md` (vectors, ESR/FAR, context save)
-- **Linker script**: `book/src/architecture/linker-script.md` (section placement, symbols)
-- **MMU/Paging**: `book/src/architecture/mmu-paging.md` (stub - Phase 2/3)
+- **Boot sequence**: `docs/src/architecture/boot-sequence.md` (firmware → ASM → Rust)
+- **Exception handling**: `docs/src/architecture/exceptions.md` (vectors, ESR/FAR, context save)
+- **Linker script**: `docs/src/architecture/linker-script.md` (section placement, symbols)
+- **Heap allocator**: `docs/src/architecture/allocator.md` (bump allocator, memory management)
+- **MMU/Paging**: `docs/src/architecture/mmu-paging.md` (stub - Phase 2/3)
 
 ### External References
 
 **When**: Need ARM docs, Pi datasheets, or learning resources
-- **ARM documentation**: `book/src/references/arm.md` (ISA, Cortex-A72 TRM, GIC)
-- **Raspberry Pi docs**: `book/src/references/raspberry-pi.md` (BCM2711, schematics, config.txt)
-- **Similar projects**: `book/src/references/similar-projects.md` (Blog OS, Rust Pi OS, OSDev)
+- **ARM documentation**: `docs/src/references/arm.md` (ISA, Cortex-A72 TRM, GIC)
+- **Raspberry Pi docs**: `docs/src/references/raspberry-pi.md` (BCM2711, schematics, config.txt)
+- **Similar projects**: `docs/src/references/similar-projects.md` (Blog OS, Rust Pi OS, OSDev)
 
 ### Design Decisions
 
 **When**: Understanding "why" behind architectural choices
-- **Why Pi 4 only**: `book/src/decisions/adr-001-pi-only.md`
-- **Why QEMU 9.0+**: `book/src/decisions/adr-002-qemu-9.md`
+- **Why Pi 4 only**: `docs/src/decisions/adr-001-pi-only.md`
+- **Why QEMU 9.0+**: `docs/src/decisions/adr-002-qemu-9.md`
 
 ### Project Planning
 
-- **Roadmap**: `book/src/roadmap.md` (phases, milestones, timeline)
-- **Introduction**: `book/src/intro.md` (overview, current status)
+- **Roadmap**: `docs/src/roadmap.md` (phases, milestones, timeline)
+- **Introduction**: `docs/src/intro.md` (overview, current status)
 
 ## Critical Constants (Memorize These)
 
@@ -105,7 +106,7 @@ All documentation is in **`book/src/`** organized as reference wiki (not linear)
 2. **Need more**: External reference links in "References" section
 3. **Deep dive**: Full ARM TRM/BCM2711 PDF (cite specific sections in code)
 
-**Efficiency**: Read 80-200 lines (targeted doc) vs 400+ lines (PROJECT.md)
+**Efficiency**: Read 80-200 lines (targeted doc) vs entire documentation tree
 
 ## Unsafe Code Requirements
 
@@ -114,7 +115,7 @@ All documentation is in **`book/src/`** organized as reference wiki (not linear)
 2. Pre-conditions checked before the block
 3. Type guarantees that ensure safety
 
-**Reference**: `book/src/architecture/boot-sequence.md` for examples
+**Reference**: `docs/src/architecture/boot-sequence.md` for examples
 
 ## Code Organization
 
@@ -134,7 +135,7 @@ src/
 
 ## Development Workflow
 
-1. **Read relevant doc** from `book/src/`
+1. **Read relevant doc** from `docs/src/`
 2. **Implement feature** with hardware reference comments
 3. **Update docs** if behavior changes
 4. **Run tests**: `cargo test` (all must pass)
@@ -150,7 +151,7 @@ src/
 - ✅ Verify constants match across code and docs
 
 **DON'T:**
-- ❌ Read entire PROJECT.md (400+ lines) for specific query
+- ❌ Read entire documentation tree for specific queries
 - ❌ Assume Pi 3 addresses work on Pi 4
 - ❌ Add `unsafe` without `// SAFETY:` comment
 - ❌ Hardcode magic numbers without datasheet reference
@@ -173,6 +174,6 @@ src/
 
 ## Version Info
 
-- **Documentation**: See `book/book/index.html` after `mdbook build`
+- **Documentation**: See `docs/book/index.html` after `mdbook build`
 - **API Reference**: Run `cargo doc --open` for Rust code docs
-- **Source of Truth**: Code in `src/` + docs in `book/src/`
+- **Source of Truth**: Code in `src/` + docs in `docs/src/`

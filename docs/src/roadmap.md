@@ -12,11 +12,13 @@ DaedalusOS development phases and milestones.
 ## Current Status
 
 **Phase 1 Complete** ✅ - Interactive shell with exception handling
-- 25 tests passing
-- Working REPL with command parsing
+**Milestone #7 Complete** ✅ - Heap allocator with 29 tests passing
+- Working REPL with command parsing and shell history
 - Exception vector table with register dumps
+- 8 MB heap with bump allocator
+- Full `alloc` crate support (Box, Vec, String, collections)
 
-**Next**: Phase 2 - Heap allocator
+**Next**: Milestone #8 - System Timer
 
 ## Phase 1: Interactive Shell ✅ COMPLETE
 
@@ -40,10 +42,13 @@ DaedalusOS development phases and milestones.
 
 **Goal**: Dynamic allocation and interrupt-driven I/O
 
-**Milestone #7**: Heap Allocator
-- Integrate Rust `alloc` crate
-- Simple bump allocator for shell history
-- Enable `String`, `Vec`, collections
+**Milestone #7**: Heap Allocator ✅ COMPLETE
+- ✅ Integrated Rust `alloc` crate
+- ✅ Simple bump allocator for shell history
+- ✅ Enabled `String`, `Vec`, collections
+- ✅ 8 MB heap region with proper alignment
+- ✅ Memory tracking (heap_size, used, free)
+- ✅ 6 allocator tests (Box, Vec, String, capacity, stats)
 
 **Milestone #8**: System Timer
 - Configure BCM2711 system timer
@@ -142,7 +147,6 @@ Each milestone must:
 2. Pass all tests (`cargo test`)
 3. Run in QEMU (`cargo run`)
 4. Update documentation
-5. Create git commit with milestone tag
 
 ## Documentation Requirements
 
