@@ -12,13 +12,16 @@ DaedalusOS development phases and milestones.
 ## Current Status
 
 **Phase 1 Complete** ✅ - Interactive shell with exception handling
-**Milestone #7 Complete** ✅ - Heap allocator with 29 tests passing
+**Milestone #7 Complete** ✅ - Heap allocator
+**Milestone #8 Complete** ✅ - System Timer with 35 tests passing
 - Working REPL with command parsing and shell history
 - Exception vector table with register dumps
 - 8 MB heap with bump allocator
 - Full `alloc` crate support (Box, Vec, String, collections)
+- System timer driver with microsecond precision delays
+- Uptime tracking and timestamp functions
 
-**Next**: Milestone #8 - System Timer
+**Next**: Milestone #9 - GIC-400 Setup (interrupt-driven I/O)
 
 ## Phase 1: Interactive Shell ✅ COMPLETE
 
@@ -50,10 +53,13 @@ DaedalusOS development phases and milestones.
 - ✅ Memory tracking (heap_size, used, free)
 - ✅ 6 allocator tests (Box, Vec, String, capacity, stats)
 
-**Milestone #8**: System Timer
-- Configure BCM2711 system timer
-- Implement delay functions
-- Timing for future scheduler
+**Milestone #8**: System Timer ✅ COMPLETE
+- ✅ Configured BCM2711 system timer (base 0xFE003000)
+- ✅ Implemented delay functions (delay_us, delay_ms)
+- ✅ Added timestamp and uptime tracking functions
+- ✅ Added uptime shell command
+- ✅ 6 timer tests (counter, delays, monotonicity)
+- ✅ Comprehensive hardware documentation
 
 **Milestone #9**: GIC-400 Setup
 - Initialize interrupt controller

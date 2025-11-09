@@ -3,6 +3,7 @@
 //! Provides a simple command-line interface with built-in commands for
 //! system information, memory statistics, and testing.
 
+use crate::drivers::timer::SystemTimer;
 use crate::drivers::uart::WRITER;
 use crate::{ALLOCATOR, print, println};
 use alloc::string::String;
@@ -116,6 +117,7 @@ fn execute_command(cmd: Command) {
             println!("  clear     - Clear the screen");
             println!("  version   - Show kernel version");
             println!("  meminfo   - Display memory and heap statistics");
+            println!("  uptime    - Show system uptime");
             println!("  history   - Show command history");
             println!("  exception - Trigger a breakpoint exception (for testing)");
         }
@@ -144,6 +146,38 @@ fn execute_command(cmd: Command) {
             println!("  Used:  {} bytes ({} KB)", used, used / 1024);
             println!("  Free:  {} bytes ({} MB)", free, free / 1024 / 1024);
             println!("  Usage: {:.2}%", (used as f32 / total as f32) * 100.0);
+        }
+
+        "uptime" => {
+            let uptime_us = SystemTimer::timestamp_us();
+            let seconds = uptime_us / 1_000_000;
+            let minutes = seconds / 60;
+            let hours = minutes / 60;
+            let days = hours / 24;
+
+            if days > 0 {
+                println!(
+                    "Uptime: {} days, {} hours, {} minutes, {} seconds",
+                    days,
+                    hours % 24,
+                    minutes % 60,
+                    seconds % 60
+                );
+            } else if hours > 0 {
+                println!(
+                    "Uptime: {} hours, {} minutes, {} seconds",
+                    hours,
+                    minutes % 60,
+                    seconds % 60
+                );
+            } else if minutes > 0 {
+                println!("Uptime: {} minutes, {} seconds", minutes, seconds % 60);
+            } else {
+                println!("Uptime: {} seconds", seconds);
+            }
+
+            // Also show the raw microsecond count
+            println!("  ({} microseconds)", uptime_us);
         }
 
         "history" => {
