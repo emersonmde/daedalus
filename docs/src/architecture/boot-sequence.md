@@ -19,11 +19,12 @@ The Raspberry Pi 4 firmware (start4.elf) performs initial hardware setup:
 4. Jumps to `_start` (first instruction in kernel)
 
 **State at firmware handoff:**
-- MMU disabled
-- Caches disabled
-- Interrupts masked (DAIF bits set)
-- Stack pointer undefined
+- MMU disabled (identity addressing, no virtual memory)
+- Data and instruction caches disabled
+- Interrupts masked (DAIF bits set - D, A, I, F all masked)
+- Stack pointer undefined (must be set by boot code)
 - Exception level: EL2 (QEMU) or EL1 (real hardware)
+- All cores running (core 0 continues, cores 1-3 must be parked)
 
 **IMPORTANT**: QEMU boots at EL2, real Pi 4 hardware boots at EL1. This affects which system registers are accessible.
 
@@ -100,37 +101,111 @@ pub extern "C" fn _start_rust() -> ! {
 
 ## Stage 4: Kernel Initialization (lib.rs)
 
-The `daedalus::init()` function performs subsystem setup:
+The `daedalus::init()` function performs subsystem setup in a specific order:
 
 ```rust
 pub fn init() {
-    // 1. UART already usable (firmware initialized it)
-    // Our driver just takes control
-
-    // 2. Install exception vector table
+    // 1. Initialize MMU first (before UART or any other subsystem)
+    //    - Sets up 3-level translation tables (L1, L2)
+    //    - Identity maps 0-1 GB (normal memory) and 3-4 GB (MMIO)
+    //    - Configures MAIR_EL1, TCR_EL1, TTBR0_EL1
+    //    - Enables MMU, data cache, and instruction cache
     unsafe {
-        exceptions::install_vector_table();
+        arch::aarch64::mmu::init();
     }
 
-    // 3. Print boot banner
-    println!("Welcome to DaedalusOS!");
-    println!("Type 'help' for available commands.\n");
+    // 2. Initialize UART driver
+    //    - Firmware already initialized it, we just take control
+    //    - Now we can print boot messages
+    drivers::uart::WRITER.lock().init();
+
+    // 3. Print boot sequence header
+    println!("DaedalusOS v{} booting...", VERSION);
+    println!("[  OK  ] MMU initialized (virtual memory enabled)");
+
+    // 4. Install exception vector table
+    exceptions::init();
+    println!("[  OK  ] Exception vectors installed");
+
+    // 5. Initialize GIC-400 interrupt controller
+    //    - Configure distributor and CPU interface
+    //    - Enable UART0 interrupt (ID 153)
+    let mut gic = drivers::gic::GIC.lock();
+    gic.init();
+    gic.enable_interrupt(drivers::gic::irq::UART0);
+    println!("[  OK  ] GIC-400 interrupt controller initialized");
+
+    // 6. Enable UART RX interrupts and unmask IRQs at CPU level
+    drivers::uart::WRITER.lock().enable_rx_interrupt();
+    enable_irqs();  // Unmasks I bit in DAIF register
+    println!("[  OK  ] IRQs enabled (interrupt-driven I/O active)");
+
+    // 7. Initialize heap allocator
+    //    - 8 MB region defined in linker.ld
+    //    - Simple bump allocator for String/Vec support
+    unsafe {
+        extern "C" {
+            static __heap_start: u8;
+            static __heap_end: u8;
+        }
+        let heap_start = &__heap_start as *const u8 as usize;
+        let heap_end = &__heap_end as *const u8 as usize;
+        ALLOCATOR.init(heap_start, heap_end);
+    }
+    println!("[  OK  ] Heap allocator initialized (8 MB)");
+
+    // 8. Print final boot message
+    println!("Boot complete. Running at EL{}.", current_el());
 }
 ```
+
+### Initialization Order Rationale
+
+**Why MMU first?**
+- Identity mapping (VA = PA) means all existing addresses remain valid
+- Enables caching for performance boost throughout boot
+- Must happen before any significant memory operations
+
+**Why UART second?**
+- Need UART working to print boot status messages
+- Firmware already initialized it, we just configure our driver
+
+**Why exceptions before interrupts?**
+- Exception vectors must be installed before any interrupts can occur
+- IRQ handler is part of exception vector table
+
+**Why GIC before enabling IRQs?**
+- GIC must be configured before CPU accepts interrupts
+- UART interrupt must be enabled in GIC before unmasking CPU IRQs
+
+**Why heap last?**
+- Not needed for early initialization
+- Requires linker symbols which are available throughout boot
+- Allocations only needed for shell and runtime features
 
 ## Memory Layout During Boot
 
 Defined in `linker.ld`:
 
 ```
-0x00080000: .text.boot    (assembly entry point)
-0x00080xxx: .text         (Rust code)
-0x000xxxxx: .rodata       (read-only data)
-0x000xxxxx: .data         (initialized data)
-0x000xxxxx: .bss          (zero-initialized data)
-0x000xxxxx: _stack_end    (stack grows down from here)
-0x000xxxxx: _stack_start  (initial SP points here)
+0x00080000: .text.boot       (assembly entry point)
+0x00080800: .text.exceptions (exception vector table, 2KB aligned)
+0x00081xxx: .text            (Rust code)
+0x000xxxxx: .rodata          (read-only data, string literals)
+0x000xxxxx: .data            (initialized globals)
+0x000xxxxx: .bss             (zero-initialized globals)
+0x000xxxxx: __heap_start     (8 MB heap region)
+0x00xxxxxx: __heap_end
+0x00xxxxxx: (2 MB stack, grows downward)
+0x00xxxxxx: _stack_start     (initial SP points here)
+
+[Page Tables - allocated in .bss by MMU module]
+L1_TABLE:       4 KB (512 entries × 8 bytes)
+L2_TABLE_LOW:   4 KB (maps 0-1 GB)
+L2_TABLE_MMIO:  4 KB (maps 3-4 GB)
 ```
+
+**Note**: After MMU initialization, all addresses are virtual, but identity-mapped (VA = PA).
 
 ## Exception Level Differences
 
@@ -149,12 +224,27 @@ This discrepancy is documented as tech debt in exception handling code.
 ## Verification
 
 Expected serial output after successful boot:
+
 ```
+DaedalusOS v0.1.0 booting...
+
+[  OK  ] MMU initialized (virtual memory enabled)
+[  OK  ] Exception vectors installed
+[  OK  ] GIC-400 interrupt controller initialized
+[  OK  ] IRQs enabled (interrupt-driven I/O active)
+[  OK  ] Heap allocator initialized (8 MB)
+
+Boot complete. Running at EL2.
+
 Welcome to DaedalusOS!
 Type 'help' for available commands.
 
 daedalus>
 ```
+
+### Boot Time
+
+On QEMU with KVM acceleration, boot typically completes in <100ms. Real hardware boot time depends on firmware initialization (~1-2 seconds before kernel starts).
 
 ## Code References
 
@@ -168,8 +258,49 @@ daedalus>
 - [ARM Cortex-A72 TRM](https://developer.arm.com/documentation/100095/0003) - Section 4.1 (reset behavior)
 - [ARMv8-A ISA](https://developer.arm.com/documentation/ddi0602/2024-12) - Section D1.2 (exception levels)
 
+## Boot Sequence Diagram
+
+```
+Firmware (start4.elf)
+  ↓
+Load kernel8.img @ 0x80000
+  ↓
+Jump to _start (boot.s)
+  ├─→ Core 1-3: park in WFE loop
+  └─→ Core 0: continue
+       ↓
+    Set SP = _stack_start
+       ↓
+    Clear BSS section
+       ↓
+    Jump to _start_rust (main.rs)
+       ↓
+    Call daedalus::init()
+       ├─→ MMU init (enable virtual memory + caches)
+       ├─→ UART init (take control from firmware)
+       ├─→ Exception vectors (install VBAR_ELx)
+       ├─→ GIC init (configure interrupt controller)
+       ├─→ IRQ enable (unmask interrupts)
+       └─→ Heap init (setup allocator)
+       ↓
+    Launch shell (shell::run())
+       ↓
+    Read-Eval-Print Loop
+```
+
+## Performance Optimizations
+
+After MMU initialization:
+- **Data cache enabled**: ~100x faster memory access for hot data
+- **Instruction cache enabled**: ~10-100x faster instruction fetch
+- **TLB active**: Fast virtual-to-physical address translation
+
+These optimizations make the shell responsive and enable real-time interrupt handling.
+
 ## Related Documentation
 
+- [MMU & Paging](mmu-paging.md) - Virtual memory setup details
 - [Exception Handling](exceptions.md) - Vector table installation
 - [Linker Script](linker-script.md) - Memory layout and symbols
 - [Memory Map](../hardware/memory-map.md) - Physical address space
+- [GIC Interrupts](../hardware/gic.md) - Interrupt controller setup

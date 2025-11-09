@@ -123,12 +123,6 @@ impl Gic {
         let it_lines_number = typer & 0x1F; // Bits [4:0]
         let num_interrupts = 32 * (it_lines_number + 1);
 
-        crate::println!(
-            "GIC: {} interrupt lines ({} interrupts)",
-            it_lines_number,
-            num_interrupts
-        );
-
         // Configure all SPIs (ID >= 32) as:
         // - Priority: 0xA0 (medium priority)
         // - Target: CPU 0 (0x01)
@@ -159,7 +153,6 @@ impl Gic {
         );
 
         self.initialized = true;
-        crate::println!("GIC initialized");
     }
 
     /// Enable a specific interrupt by ID.

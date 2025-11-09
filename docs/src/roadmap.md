@@ -11,17 +11,18 @@ DaedalusOS development phases and milestones.
 
 ## Current Status
 
-**Phase 1 Complete** ✅ - Interactive shell with exception handling
-**Milestone #7 Complete** ✅ - Heap allocator
-**Milestone #8 Complete** ✅ - System Timer with 35 tests passing
+**Phase 2 Complete** ✅ - Memory management and interrupts
+**Milestone #10 Complete** ✅ - MMU & Paging with virtual memory
 - Working REPL with command parsing and shell history
 - Exception vector table with register dumps
 - 8 MB heap with bump allocator
 - Full `alloc` crate support (Box, Vec, String, collections)
 - System timer driver with microsecond precision delays
-- Uptime tracking and timestamp functions
+- GIC-400 interrupt controller with interrupt-driven UART
+- MMU with 39-bit virtual address space (identity mapped)
+- Caching enabled for performance
 
-**Next**: Milestone #9 - GIC-400 Setup (interrupt-driven I/O)
+**Next**: Milestone #11 - Multi-Core (wake secondary cores)
 
 ## Phase 1: Interactive Shell ✅ COMPLETE
 
@@ -41,7 +42,7 @@ DaedalusOS development phases and milestones.
 - Line editing: backspace, Ctrl-U (clear line), Ctrl-C (cancel)
 - Full exception handling with register dumps
 
-## Phase 2: Memory & Interrupts 🔄 IN PROGRESS
+## Phase 2: Memory & Interrupts ✅ COMPLETE
 
 **Goal**: Dynamic allocation and interrupt-driven I/O
 
@@ -61,17 +62,21 @@ DaedalusOS development phases and milestones.
 - ✅ 6 timer tests (counter, delays, monotonicity)
 - ✅ Comprehensive hardware documentation
 
-**Milestone #9**: GIC-400 Setup
-- Initialize interrupt controller
-- Configure UART interrupts
-- Interrupt-driven I/O (replace polling)
+**Milestone #9**: GIC-400 Setup ✅ COMPLETE
+- ✅ Initialize interrupt controller
+- ✅ Configure UART interrupts
+- ✅ Interrupt-driven I/O (replaced polling)
 
-## Phase 3: Advanced Kernel Features
+**Milestone #10**: MMU & Paging ✅ COMPLETE
+- ✅ 3-level translation tables with 2 MB block mappings
+- ✅ Identity map kernel (1 GB normal memory)
+- ✅ Identity map MMIO (device memory, non-cacheable)
+- ✅ 39-bit virtual address space (512 GB)
+- ✅ Memory attributes (cacheable normal, device-nGnRnE)
+- ✅ Shell command (`mmu`) for debugging MMU status
+- ✅ Comprehensive documentation
 
-**Milestone #10**: MMU & Paging
-- Translation tables (4 KiB pages)
-- Identity map kernel and MMIO
-- Memory protection
+## Phase 3: Advanced Kernel Features 🔄 IN PROGRESS
 
 **Milestone #11**: Multi-Core
 - Wake secondary cores (1-3)

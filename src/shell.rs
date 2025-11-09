@@ -120,6 +120,7 @@ fn execute_command(cmd: Command) {
             println!("  uptime    - Show system uptime");
             println!("  history   - Show command history");
             println!("  debug     - Show system debug information");
+            println!("  mmu       - Show MMU (virtual memory) status");
             println!("  exit      - Shutdown system (exit QEMU or halt CPU)");
             println!("  exception - Trigger a breakpoint exception (for testing)");
         }
@@ -322,6 +323,62 @@ fn execute_command(cmd: Command) {
                         options(noreturn)
                     );
                 }
+            }
+        }
+
+        "mmu" => {
+            use crate::arch::aarch64::mmu;
+
+            println!("MMU (Memory Management Unit) Status:");
+            println!();
+
+            // Check if MMU is enabled
+            let enabled = mmu::is_enabled();
+            println!("  Status: {}", if enabled { "ENABLED" } else { "DISABLED" });
+
+            if enabled {
+                // Show MMU configuration registers
+                let ttbr0 = mmu::get_ttbr0();
+                let tcr = mmu::get_tcr();
+                let mair = mmu::get_mair();
+
+                println!();
+                println!("  Translation Table Base (TTBR0_EL1): 0x{:016X}", ttbr0);
+
+                println!();
+                println!("  Translation Control (TCR_EL1): 0x{:016X}", tcr);
+                let t0sz = tcr & 0x3F;
+                let granule = match (tcr >> 14) & 0x3 {
+                    0b00 => "4 KB",
+                    0b01 => "64 KB",
+                    0b10 => "16 KB",
+                    _ => "Reserved",
+                };
+                let va_bits = 64 - t0sz;
+                let va_size = 1u64 << va_bits;
+                println!(
+                    "    Virtual address size: {} bits ({} GB)",
+                    va_bits,
+                    va_size / (1024 * 1024 * 1024)
+                );
+                println!("    Page granule: {}", granule);
+
+                println!();
+                println!("  Memory Attributes (MAIR_EL1): 0x{:016X}", mair);
+                let attr0 = mair & 0xFF;
+                let attr1 = (mair >> 8) & 0xFF;
+                println!("    Attr0 (Device): 0x{:02X} (Device-nGnRnE)", attr0);
+                println!(
+                    "    Attr1 (Normal):  0x{:02X} (Normal WB RW-Allocate)",
+                    attr1
+                );
+
+                println!();
+                println!("  Memory Mappings (Identity):");
+                println!("    0x00000000-0x3FFFFFFF → Normal memory (kernel + DRAM)");
+                println!("    0xFE000000-0xFF800000 → Device memory (MMIO)");
+            } else {
+                println!("  (Virtual memory is not active - using physical addresses)");
             }
         }
 

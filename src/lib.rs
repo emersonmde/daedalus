@@ -18,6 +18,7 @@
 extern crate alloc;
 
 pub mod allocator;
+pub mod arch;
 pub mod drivers;
 pub mod exceptions;
 pub mod qemu;
@@ -73,15 +74,33 @@ fn enable_irqs() {
             options(nomem, nostack)
         );
     }
-    println!("IRQs enabled");
 }
 
 /// Initialize the kernel
 ///
 /// Sets up hardware devices and prepares the system for operation.
 pub fn init() {
+    // Initialize MMU first for memory protection
+    // SAFETY: Called exactly once during kernel initialization.
+    // Identity mapping ensures all existing code/data addresses remain valid.
+    unsafe {
+        arch::aarch64::mmu::init();
+    }
+
+    // Initialize UART so we can print status messages
     drivers::uart::WRITER.lock().init();
+
+    // Print startup sequence header
+    println!();
+    println!("DaedalusOS v{} booting...", env!("CARGO_PKG_VERSION"));
+    println!();
+
+    // Show initialization sequence
+    // TODO: Add log levels (INFO, DEBUG, etc.) in future logging framework
+    println!("[  OK  ] MMU initialized (virtual memory enabled)");
+
     exceptions::init();
+    println!("[  OK  ] Exception vectors installed");
 
     // Initialize GIC (interrupt controller)
     {
@@ -91,12 +110,14 @@ pub fn init() {
         // Enable UART0 interrupt in GIC
         gic.enable_interrupt(drivers::gic::irq::UART0);
     }
+    println!("[  OK  ] GIC-400 interrupt controller initialized");
 
     // Enable UART RX interrupts
     drivers::uart::WRITER.lock().enable_rx_interrupt();
 
     // Enable IRQs at CPU level
     enable_irqs();
+    println!("[  OK  ] IRQs enabled (interrupt-driven I/O active)");
 
     // Initialize heap allocator
     // SAFETY: This code is safe because:
@@ -119,10 +140,30 @@ pub fn init() {
         ALLOCATOR.init(heap_start, heap_end);
     }
     println!(
-        "Heap initialized: {} bytes ({} MB)",
-        ALLOCATOR.heap_size(),
+        "[  OK  ] Heap allocator initialized ({} MB)",
         ALLOCATOR.heap_size() / 1024 / 1024
     );
+
+    println!();
+
+    // Print startup banner after all initialization is complete
+    print_startup_banner();
+}
+
+/// Print kernel startup banner with system information
+fn print_startup_banner() {
+    use core::arch::asm;
+
+    // Get exception level
+    let current_el: u64;
+    // SAFETY: Reading CurrentEL is safe (read-only register)
+    unsafe {
+        asm!("mrs {}, CurrentEL", out(reg) current_el, options(nomem, nostack));
+    }
+    let el = ((current_el >> 2) & 0x3) as u8;
+
+    println!("Boot complete. Running at EL{}.", el);
+    println!();
 }
 
 /// Print implementation that acquires the UART writer lock

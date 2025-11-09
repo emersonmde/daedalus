@@ -319,13 +319,12 @@ unsafe extern "C" {
 pub fn init() {
     // Check current exception level
     let el = current_el();
-    println!("Current Exception Level: EL{}", el);
 
     // SAFETY: Setting VBAR_ELx is safe because:
     // 1. We determined the current EL above and select the appropriate VBAR register for that EL
     // 2. VBAR_EL1/VBAR_EL2 are read-write registers holding exception vector table base address
-    //    - VBAR_EL1: https://developer.arm.com/documentation/ddi0601/latest/AArch64-Registers/VBAR-EL1--Vector-Base-Address-Register--EL1-
-    //    - VBAR_EL2: https://developer.arm.com/documentation/ddi0595/2020-12/AArch64-Registers/VBAR-EL2--Vector-Base-Address-Register--EL2-
+    //    - VBAR_EL1: <https://developer.arm.com/documentation/ddi0601/latest/AArch64-Registers/VBAR-EL1--Vector-Base-Address-Register--EL1->
+    //    - VBAR_EL2: <https://developer.arm.com/documentation/ddi0595/2020-12/AArch64-Registers/VBAR-EL2--Vector-Base-Address-Register--EL2->
     // 3. exception_vector_table is a valid symbol defined in exceptions.s by the assembler
     // 4. The vector table is properly aligned (2KB alignment enforced by .align 11 directive in assembly)
     // 5. We're setting VBAR for the current EL, which is architecturally permitted
@@ -351,11 +350,4 @@ pub fn init() {
             );
         }
     }
-    // SAFETY: Taking the address of exception_vector_table is safe because:
-    // 1. exception_vector_table is a valid linker symbol defined in exceptions.s
-    // 2. We only take the address (as pointer cast to u64), we don't dereference the memory
-    // 3. This is used only for display purposes
-    println!("Exception vectors installed at 0x{:016x}", unsafe {
-        &exception_vector_table as *const u64 as u64
-    });
 }
