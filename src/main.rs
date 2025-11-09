@@ -1,3 +1,8 @@
+//! DaedalusOS kernel binary entry point.
+//!
+//! This module contains the bare-metal executable entry point and panic handlers
+//! for both normal operation and test mode.
+
 #![no_std]
 #![no_main]
 #![feature(custom_test_frameworks)]
@@ -6,9 +11,6 @@
 
 use core::panic::PanicInfo;
 use daedalus::println;
-
-#[cfg(test)]
-use daedalus::qemu;
 
 /// Rust entry point called from boot.s
 #[unsafe(no_mangle)]
@@ -27,6 +29,9 @@ pub extern "C" fn _start_rust() -> ! {
     loop {}
 }
 
+/// Panic handler for normal (non-test) operation.
+///
+/// Prints panic information and halts the CPU indefinitely.
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
@@ -34,10 +39,11 @@ fn panic(info: &PanicInfo) -> ! {
     loop {}
 }
 
+/// Panic handler for test mode.
+///
+/// Delegates to the shared test panic handler in the library.
 #[cfg(test)]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    println!("[failed]\n");
-    println!("Error: {}\n", info);
-    qemu::exit(qemu::ExitCode::Failed);
+    daedalus::test_panic_handler(info)
 }

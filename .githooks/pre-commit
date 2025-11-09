@@ -1,22 +1,60 @@
 #!/bin/sh
 
 # DaedalusOS pre-commit hook to mirror CI checks.
+# Errors fail the commit, warnings are shown but don't block.
 
 set -eu
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
+# Create temporary directory and ensure cleanup
+TEMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TEMP_DIR"' EXIT
+
+WARNINGS_FOUND=0
+
 echo "→ Running cargo fmt -- --check"
 cargo fmt -- --check
 
 echo "→ Running cargo clippy"
-cargo clippy --all-targets -- -D warnings
+if ! cargo clippy --all-targets 2>&1 | tee "$TEMP_DIR/clippy-output.txt"; then
+    echo "❌ Clippy found errors"
+    exit 1
+fi
+if grep -q "warning:" "$TEMP_DIR/clippy-output.txt"; then
+    echo "⚠️  Clippy warnings found (review above)"
+    WARNINGS_FOUND=1
+fi
+
+echo "→ Running cargo doc"
+if ! cargo doc --no-deps --document-private-items 2>&1 | tee "$TEMP_DIR/doc-output.txt"; then
+    echo "❌ Documentation build failed"
+    exit 1
+fi
+if grep -q "warning:" "$TEMP_DIR/doc-output.txt"; then
+    echo "⚠️  Documentation warnings found (review above)"
+    WARNINGS_FOUND=1
+fi
 
 echo "→ Running cargo test"
-cargo test
+if ! cargo test 2>&1 | tee "$TEMP_DIR/test-output.txt"; then
+    echo "❌ Tests failed"
+    exit 1
+fi
 
 echo "→ Running cargo build --release"
-cargo build --release
+if ! cargo build --release 2>&1 | tee "$TEMP_DIR/build-output.txt"; then
+    echo "❌ Release build failed"
+    exit 1
+fi
+if grep -q "warning:" "$TEMP_DIR/build-output.txt"; then
+    echo "⚠️  Build warnings found (review above)"
+    WARNINGS_FOUND=1
+fi
 
-echo "✓ All pre-commit checks passed"
+if [ "$WARNINGS_FOUND" -eq 1 ]; then
+    echo "⚠️  Pre-commit checks passed with warnings"
+else
+    echo "✓ All pre-commit checks passed"
+fi

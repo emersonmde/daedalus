@@ -2,6 +2,14 @@
 # Runner script for cargo run and cargo test
 # Converts ELF to binary and launches QEMU with semihosting
 
+set -eu
+
+# Validate input
+if [ $# -ne 1 ]; then
+    echo "Usage: $0 <elf-file>" >&2
+    exit 1
+fi
+
 ELF_FILE="$1"
 DIR=$(dirname "$ELF_FILE")
 IMG_FILE="$DIR/kernel8.img"

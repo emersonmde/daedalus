@@ -1,8 +1,10 @@
-/// Simple bump allocator for dynamic memory allocation
-///
-/// This allocator maintains a pointer that "bumps" forward with each allocation.
-/// It never frees individual allocations, but memory can be reclaimed by resetting
-/// the entire allocator.
+//! Simple bump allocator for heap memory management.
+//!
+//! This module provides a basic bump allocator that moves a pointer forward with
+//! each allocation. Individual deallocations are no-ops, making this allocator
+//! suitable for workloads where memory is allocated but rarely freed, or where
+//! memory can be reclaimed in bulk.
+
 use core::alloc::{GlobalAlloc, Layout};
 use core::cell::UnsafeCell;
 use core::ptr;

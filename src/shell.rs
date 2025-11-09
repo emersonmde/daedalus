@@ -1,24 +1,38 @@
+//! Interactive shell (REPL) for DaedalusOS.
+//!
+//! Provides a simple command-line interface with built-in commands for
+//! system information, memory statistics, and testing.
+
 use crate::drivers::uart::WRITER;
 use crate::{ALLOCATOR, print, println};
 use alloc::string::String;
 use alloc::vec::Vec;
 use spin::Mutex;
 
+/// Maximum line input buffer size in bytes.
 const LINE_BUFFER_SIZE: usize = 256;
+
+/// Kernel version from Cargo.toml.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Maximum number of commands to keep in history.
 const MAX_HISTORY: usize = 100;
 
-// Command history storage
+/// Command history storage.
 static HISTORY: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
-/// Shell command structure
+/// A parsed shell command with name and arguments.
 pub struct Command<'a> {
+    /// Command name (first word).
     pub name: &'a str,
+    /// Arguments (everything after first word).
     pub args: &'a str,
 }
 
 impl<'a> Command<'a> {
-    /// Parse a line into command and arguments
+    /// Parse a line into command name and arguments.
+    ///
+    /// Returns `None` if the line is empty or contains only whitespace.
     pub fn parse(line: &'a str) -> Option<Self> {
         let line = line.trim();
         if line.is_empty() {
@@ -33,7 +47,10 @@ impl<'a> Command<'a> {
     }
 }
 
-/// Read a line from the UART with echo and basic line editing
+/// Read a line from UART with echo and basic line editing.
+///
+/// Supports backspace, Ctrl-C, and Ctrl-U (clear line).
+/// Returns the number of bytes read into the buffer.
 fn read_line(buffer: &mut [u8]) -> usize {
     let mut pos = 0;
 
@@ -89,7 +106,7 @@ fn read_line(buffer: &mut [u8]) -> usize {
     }
 }
 
-/// Execute a built-in command
+/// Execute a built-in shell command.
 fn execute_command(cmd: Command) {
     match cmd.name {
         "help" => {
@@ -162,7 +179,9 @@ fn execute_command(cmd: Command) {
     }
 }
 
-/// Run the interactive shell REPL
+/// Run the interactive shell REPL (Read-Eval-Print Loop).
+///
+/// This function never returns - it loops forever reading and executing commands.
 pub fn run() -> ! {
     let mut line_buffer = [0u8; LINE_BUFFER_SIZE];
 

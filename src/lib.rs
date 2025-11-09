@@ -1,3 +1,13 @@
+//! DaedalusOS - A bare-metal Rust kernel for Raspberry Pi.
+//!
+//! This is a `#![no_std]` kernel that runs directly on Raspberry Pi hardware (currently Pi 4).
+//! It provides:
+//! - Hardware drivers (UART for serial console)
+//! - Exception handling for AArch64
+//! - Simple bump allocator for heap memory
+//! - Interactive shell with built-in commands
+//! - Custom test framework for bare-metal testing
+
 #![no_std]
 #![cfg_attr(test, no_main)]
 #![feature(custom_test_frameworks)]
@@ -84,21 +94,30 @@ pub fn _print(args: fmt::Arguments) {
         .expect("Printing to UART failed");
 }
 
-/// Print macro for console output
+/// Print formatted text to the serial console.
+///
+/// Uses the same syntax as `std::print!`.
 #[macro_export]
 macro_rules! print {
     ($($arg:tt)*) => ($crate::_print(format_args!($($arg)*)));
 }
 
-/// Println macro for console output
+/// Print formatted text with newline to the serial console.
+///
+/// Uses the same syntax as `std::println!`.
 #[macro_export]
 macro_rules! println {
     () => ($crate::print!("\n"));
     ($($arg:tt)*) => ($crate::print!("{}\n", format_args!($($arg)*)));
 }
 
-// Test infrastructure
+// ============================================================================
+// Test Infrastructure
+// ============================================================================
+
+/// Trait for test functions that can be run by the custom test framework.
 pub trait Testable {
+    /// Run this test and report results.
     fn run(&self);
 }
 
@@ -114,6 +133,10 @@ where
     }
 }
 
+/// Custom test runner for bare-metal testing.
+///
+/// Runs all test functions and reports results in a cargo-test-like format.
+/// Exits QEMU with appropriate exit code for CI integration.
 pub fn test_runner(tests: &[&dyn Testable]) {
     println!();
     println!("running {} tests", tests.len());

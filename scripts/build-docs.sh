@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build unified documentation (mdBook + cargo doc)
-set -e
+set -eu
 
 echo "Building mdBook documentation..."
 mdbook build

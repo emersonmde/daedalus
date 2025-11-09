@@ -7,7 +7,7 @@
 - **Target**: Raspberry Pi 4 Model B only (BCM2711, Cortex-A72)
 - **Language**: Rust 2024, nightly, `#![no_std]` bare-metal
 - **Architecture**: AArch64 (ARMv8-A)
-- **Current State**: Phase 1 complete - interactive shell with 25 passing tests
+- **Current State**: Phase 1 complete - interactive shell with comprehensive test suite
 - **Next Milestone**: Heap allocator (Phase 2)
 
 ## Quick Commands
@@ -15,10 +15,25 @@
 ```bash
 cargo build              # Build kernel ELF
 cargo run                # Build + run in QEMU (interactive shell)
-cargo test               # Run 25 tests in QEMU
+cargo test               # Run tests in QEMU
 ./scripts/build-docs.sh  # Build unified docs (mdbook + cargo doc)
 mdbook serve             # View docs at localhost:3000
 ```
+
+### Verify Everything is OK
+
+Before committing or after making changes, run the pre-commit hook to verify everything passes:
+
+```bash
+./.githooks/pre-commit   # Run all checks: fmt, clippy, test, build
+```
+
+This runs:
+- `cargo fmt --check` - Verify formatting (errors fail)
+- `cargo clippy` - Check for lint issues (errors fail, warnings shown)
+- `cargo doc` - Build documentation (errors fail, warnings shown)
+- `cargo test` - Run all tests (failures fail)
+- `cargo build --release` - Verify release build (errors fail, warnings shown)
 
 **QEMU Requirement**: 9.0+ for raspi4b machine type (see `book/src/decisions/adr-002-qemu-9.md`)
 

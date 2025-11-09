@@ -1,21 +1,21 @@
-/// Exception handling for AArch64
-///
-/// This module provides the exception vector table and handlers for:
-/// - Synchronous exceptions (data/instruction aborts, undefined instructions, etc.)
-/// - IRQ (normal interrupts)
-/// - FIQ (fast interrupts)
-/// - SError (system errors)
+//! AArch64 exception handling.
+//!
+//! Provides exception vector installation and handlers for synchronous exceptions,
+//! IRQs, FIQs, and SErrors. Handlers print detailed exception context including
+//! register dumps and exception syndrome information.
+
 use crate::println;
 use core::arch::asm;
 
-/// ESR (Exception Syndrome Register) field definitions
-/// Reference: ARM ARM https://developer.arm.com/documentation/ddi0595/2020-12/AArch64-Registers/ESR-EL1--Exception-Syndrome-Register--EL1-
+/// ESR (Exception Syndrome Register) field definitions.
+///
+/// Reference: [ARM ARM ESR_EL1](https://developer.arm.com/documentation/ddi0595/2020-12/AArch64-Registers/ESR-EL1--Exception-Syndrome-Register--EL1-)
 mod esr_fields {
-    /// Exception Class (EC) field - bits [31:26]
+    /// Exception Class (EC) field - bits \[31:26\]
     pub const EC_SHIFT: u32 = 26;
     pub const EC_MASK: u64 = 0x3F;
 
-    /// Instruction Specific Syndrome (ISS) field - bits [24:0]
+    /// Instruction Specific Syndrome (ISS) field - bits \[24:0\]
     pub const ISS_MASK: u64 = 0x1FFFFFF;
 }
 
@@ -233,28 +233,33 @@ fn print_exception_context(ctx: &ExceptionContext, exc_type: ExceptionType, sour
     println!(" x30: 0x{:016x}", ctx.x30);
 }
 
-//-----------------------------------------------------------------------------
-// Exception handlers called from assembly
-//-----------------------------------------------------------------------------
+// ============================================================================
+// Exception Handlers
+// ============================================================================
+// These are called from the exception vector table in exceptions.s
 
+/// Handle exceptions from current EL using SP0.
 #[unsafe(no_mangle)]
 extern "C" fn exception_handler_el1_sp0(ctx: &ExceptionContext, exc_type: u64) {
     print_exception_context(ctx, ExceptionType::from_u64(exc_type), "Current EL (SP0)");
     panic!("Unhandled exception");
 }
 
+/// Handle exceptions from current EL using SPx.
 #[unsafe(no_mangle)]
 extern "C" fn exception_handler_el1_spx(ctx: &ExceptionContext, exc_type: u64) {
     print_exception_context(ctx, ExceptionType::from_u64(exc_type), "Current EL (SPx)");
     panic!("Unhandled exception");
 }
 
+/// Handle exceptions from lower EL in AArch64 mode.
 #[unsafe(no_mangle)]
 extern "C" fn exception_handler_lower_aa64(ctx: &ExceptionContext, exc_type: u64) {
     print_exception_context(ctx, ExceptionType::from_u64(exc_type), "Lower EL (AArch64)");
     panic!("Unhandled exception");
 }
 
+/// Handle exceptions from lower EL in AArch32 mode.
 #[unsafe(no_mangle)]
 extern "C" fn exception_handler_lower_aa32(ctx: &ExceptionContext, exc_type: u64) {
     print_exception_context(ctx, ExceptionType::from_u64(exc_type), "Lower EL (AArch32)");

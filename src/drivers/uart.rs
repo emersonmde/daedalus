@@ -1,13 +1,19 @@
+//! PL011 UART driver for serial console I/O.
+//!
+//! Provides a simple polling-based UART driver for the Raspberry Pi's PL011 UART0.
+//! Supports both transmit and receive operations with proper FIFO handling.
+
 use core::fmt;
 use lazy_static::lazy_static;
 use spin::Mutex;
 use volatile::Volatile;
 
-/// PL011 UART base address for Raspberry Pi 4
+/// PL011 UART base address (BCM2711 Low Peripheral mode).
 const UART_BASE: usize = 0xFE20_1000;
 
-/// PL011 UART register bit definitions
-/// Reference: ARM PL011 TRM https://developer.arm.com/documentation/ddi0183/latest/
+/// PL011 UART register bit definitions.
+///
+/// Reference: [ARM PL011 TRM](https://developer.arm.com/documentation/ddi0183/latest/)
 mod pl011_flags {
     // Flag Register (FR) bits - Section 3.3.6
     pub const FR_TXFF: u32 = 1 << 5; // Transmit FIFO full
