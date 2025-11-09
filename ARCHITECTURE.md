@@ -113,15 +113,15 @@ Dependencies: `llvm-tools` (rustup component), `rust-src` (rustup component), `c
 ### Current Test Setup (2025-11-08)
 
 - **Test Framework**: Custom test framework using Rust's `custom_test_frameworks` feature
-- **Test Execution**: `cargo test --bin daedalus` builds test binary and runs it in QEMU
+- **Test Execution**: `cargo test` builds test binary and runs it in QEMU
 - **Test Runner**: `qemu-runner.sh` converts ELF to binary and launches QEMU with semihosting
-- **Exit Mechanism**: ARM semihosting (HLT #0xF000) - Note: QEMU exits with status 1 even on success
-- **Verification**: Tests print `[ok]` on success; manually verify output shows all tests passing
+- **Exit Mechanism**: ARM semihosting (HLT #0xF000) with proper parameter block for ADP_Stopped_ApplicationExit
+- **Exit Codes**: Status 0 on success, status 1 on failure (properly communicated to host)
 
 ### Running Tests
 
 ```bash
-cargo test --bin daedalus
+cargo test
 ```
 
 Expected output shows test names followed by `[ok]`:

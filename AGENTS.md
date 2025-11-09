@@ -8,10 +8,10 @@
 ## Build, Test, and Development Commands
 - `cargo build` – builds the kernel ELF binary (target configured in `.cargo/config.toml`)
 - `cargo run` – builds and runs the kernel in QEMU (uses `qemu-runner.sh`)
-- `cargo test --bin daedalus` – runs tests in QEMU; verify tests show `[ok]` in output
+- `cargo test` – runs tests in QEMU; exits with status 0 on success
 - `cargo objcopy --release -- -O binary kernel8.img` – generates `kernel8.img` for real Pi hardware (only needed for SD card deployment, not QEMU)
 - Expected `cargo run` output: `Welcome to Daedalus (Pi)!`
-- Expected `cargo test` output: Test names followed by `[ok]` for each passing test
+- Expected `cargo test` behavior: Exits with status 0 when all tests pass
 - Install/update the nightly toolchain, `rust-src`, `llvm-tools`, and `cargo-binutils` per `README.md`
 - Keep commands scripted (upcoming `xtask`) so contributors can mirror exact invocations
 

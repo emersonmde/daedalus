@@ -14,7 +14,7 @@ fn main() {
                 "-target",
                 "aarch64-none-elf",
                 "-c",
-                "src/boot.s",
+                "src/arch/aarch64/boot.s",
                 "-o",
             ])
             .arg(&out_dir.join("boot.o"))
@@ -43,6 +43,6 @@ fn main() {
     }
 
     // Re-run if boot.s or linker.ld changes
-    println!("cargo:rerun-if-changed=src/boot.s");
+    println!("cargo:rerun-if-changed=src/arch/aarch64/boot.s");
     println!("cargo:rerun-if-changed=linker.ld");
 }

@@ -58,20 +58,8 @@ cargo build --release
 Run tests in QEMU:
 
 ```bash
-cargo test --bin daedalus
+cargo test
 ```
-
-Tests will run and print results. Look for `[ok]` after each test name to verify they passed.
-
-Example output:
-```
-Running 2 tests
-daedalus::test_println...    test_println output
-[ok]
-daedalus::trivial_assertion...    [ok]
-```
-
-Note: QEMU exits with status 1 due to semihosting limitations, but test results are visible in the output.
 
 ## Running on Real Hardware
 
@@ -106,14 +94,34 @@ Note: The `objcopy` step is only needed for real hardware. QEMU loads the ELF di
 
 ## Project Structure
 
-- `src/main.rs` - Rust entry point, panic handler, and test framework
-- `src/boot.s` - AArch64 assembly boot stub (core parking, BSS clearing, stack setup)
-- `src/pl011.rs` - PL011 UART driver for console output
-- `linker.ld` - Linker script (places kernel at 0x80000)
-- `aarch64-daedalus.json` - Custom target specification for bare-metal AArch64
-- `build.rs` - Build script that compiles assembly and links it into the binary
-- `qemu-runner.sh` - Wrapper script that converts ELF to binary and launches QEMU
-- `.cargo/config.toml` - Cargo configuration (target, linker flags, test runner)
+```
+daedalus-os/
+├── src/
+│   ├── main.rs              # Binary entry point and panic handlers
+│   ├── lib.rs               # Library root with print! macros and test framework
+│   ├── drivers/
+│   │   ├── mod.rs
+│   │   └── uart.rs          # PL011 UART driver (hardware-specific)
+│   ├── qemu.rs              # QEMU utilities (semihosting, exit codes)
+│   └── arch/
+│       └── aarch64/
+│           └── boot.s       # Boot assembly (core parking, BSS, stack)
+├── linker.ld                # Linker script (entry at 0x80000)
+├── aarch64-daedalus.json    # Custom bare-metal AArch64 target spec
+├── build.rs                 # Compiles assembly and links it
+├── qemu-runner.sh           # Converts ELF to binary and launches QEMU
+└── .cargo/config.toml       # Target, linker flags, test runner
+```
+
+### Module Organization
+
+The project follows a modular structure inspired by Phil Opp's blog_os and traditional OS development:
+
+- **lib.rs** - Testable kernel library with public API
+- **main.rs** - Minimal binary entry point
+- **drivers/** - Hardware device drivers (currently just UART)
+- **arch/** - Architecture-specific code (boot stub, low-level init)
+- **qemu.rs** - Emulator-specific utilities (not for real hardware)
 
 ## Documentation
 

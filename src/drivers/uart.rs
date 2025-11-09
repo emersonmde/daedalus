@@ -7,7 +7,7 @@ use volatile::Volatile;
 const UART_BASE: usize = 0xFE20_1000;
 
 lazy_static! {
-    pub static ref CONSOLE: Mutex<Console> = Mutex::new(Console::new());
+    pub static ref WRITER: Mutex<UartWriter> = Mutex::new(UartWriter::new());
 }
 
 /// PL011 UART register offsets
@@ -27,16 +27,16 @@ struct Pl011Registers {
     icr: Volatile<u32>,         // 0x44 - Interrupt Clear Register
 }
 
-/// Console writer for PL011 UART
-pub struct Console {
+/// UART writer for serial console output
+pub struct UartWriter {
     registers: &'static mut Pl011Registers,
     initialized: bool,
 }
 
-impl Console {
-    /// Create a new console instance
+impl UartWriter {
+    /// Create a new UART writer instance
     pub const fn new() -> Self {
-        Console {
+        UartWriter {
             registers: unsafe { &mut *(UART_BASE as *mut Pl011Registers) },
             initialized: false,
         }
@@ -100,29 +100,9 @@ impl Console {
     }
 }
 
-impl fmt::Write for Console {
+impl fmt::Write for UartWriter {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         self.write_string(s);
         Ok(())
     }
-}
-
-/// Print implementation that acquires the console lock
-#[doc(hidden)]
-pub fn _print(args: fmt::Arguments) {
-    use core::fmt::Write;
-    CONSOLE.lock().write_fmt(args).unwrap();
-}
-
-/// Print macro for console output
-#[macro_export]
-macro_rules! print {
-    ($($arg:tt)*) => ($crate::pl011::_print(format_args!($($arg)*)));
-}
-
-/// Println macro for console output
-#[macro_export]
-macro_rules! println {
-    () => ($crate::print!("\n"));
-    ($($arg:tt)*) => ($crate::print!("{}\n", format_args!($($arg)*)));
 }
