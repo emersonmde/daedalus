@@ -6,8 +6,9 @@ DaedalusOS development phases and milestones.
 
 - **Primary**: Learning project for OS internals and bare-metal ARM programming
 - **Target**: Raspberry Pi 4 exclusively (see [ADR-001](decisions/adr-001-pi-only.md))
-- **End Vision**: Minimal functional OS with shell, networking, GPIO control
-- **Development**: Incremental weekend projects, each milestone delivers working feature
+- **End Vision**: Network-enabled device for remote GPIO control via HTTP
+- **Development**: Incremental milestones, each delivers working feature
+- **Learning Focus**: Hardware/driver layer (implement from scratch), protocols/algorithms (use existing `no_std` crates)
 
 ## Current Status
 
@@ -22,7 +23,7 @@ DaedalusOS development phases and milestones.
 - MMU with 39-bit virtual address space (identity mapped)
 - Caching enabled for performance
 
-**Next**: Milestone #11 - Multi-Core (wake secondary cores)
+**Next**: Phase 3 - GPIO driver (foundation for real-world I/O)
 
 ## Phase 1: Interactive Shell ✅ COMPLETE
 
@@ -76,80 +77,113 @@ DaedalusOS development phases and milestones.
 - ✅ Shell command (`mmu`) for debugging MMU status
 - ✅ Comprehensive documentation
 
-## Phase 3: Advanced Kernel Features 🔄 IN PROGRESS
+## Phase 3: Hardware I/O 🔄 IN PROGRESS
 
-**Milestone #11**: Multi-Core
-- Wake secondary cores (1-3)
-- Core synchronization primitives
-- Basic SMP scheduler
+**Goal**: Foundation for real-world device control
 
-**Milestone #12**: Preemptive Scheduler
-- Timer-based preemption
-- Round-robin task switching
-- Sleep/wake mechanisms
+**Milestone #11**: GPIO Driver
+- Pin configuration (input/output, pull-up/down)
+- Digital I/O (read/write GPIO pins)
+- LED control for visual feedback
+- Shell commands for GPIO manipulation
 
-## Phase 4: Userspace & Processes
+## Phase 4: Networking Stack
 
-**Milestone #13**: EL0 Userspace
-- Drop to EL0 for user programs
-- System call interface (SVC)
-- Memory isolation
+**Goal**: Network-enabled device (the primary objective)
 
-**Milestone #14**: Process Management
-- Process creation/termination
-- Basic IPC (pipes/messages)
-- Resource limits
+**Milestone #12**: Ethernet Driver (BCM54213PE PHY)
+- GENET controller initialization
+- PHY configuration and link detection
+- Interrupt-driven packet TX/RX (no DMA initially)
+- MAC address configuration
+- ARP handling
 
-## Phase 5: Filesystems & Storage
+**Milestone #13**: IP Layer
+- Integrate `smoltcp` TCP/IP stack
+- IPv4 packet handling
+- ICMP echo (ping support)
+- Basic routing
 
-**Milestone #15**: FAT32 Driver
-- Read FAT filesystem
-- File operations (open, read, close)
+**Milestone #14**: Transport Layer
+- UDP sockets
+- TCP connection management
+- Port binding and listening
+
+**Milestone #15**: Application Protocols
+- DNS resolver (A records)
+- HTTP/1.0 client (GET/POST)
+- Simple HTTP server for device control
+
+**Milestone #16**: Network Shell Commands
+- `ping` - Test connectivity
+- `http-get` - Fetch URLs
+- `gpio-server` - HTTP API for GPIO control
+
+## Phase 5: Advanced Features (Future Self-Implementation)
+
+**Goal**: Optimizations and advanced capabilities
+
+**Milestone #17**: DMA Controller
+- DMA channel setup
+- Optimize Ethernet for DMA-based transfers
+- Improve SD card performance (when implemented)
+
+**Milestone #18**: Better Allocator
+- Replace bump allocator with buddy or slab allocator
+- Free/reallocation support
+- Fragmentation management
+
+**Milestone #19**: Multi-Core Support
+- Wake secondary cores (cores 1-3)
+- Spinlocks and synchronization primitives
+- Per-core data structures
+
+**Milestone #20**: Cooperative Scheduler
+- Task switching for async I/O
+- Event-driven network processing
+- Timer-based task scheduling
+
+## Phase 6: Storage & Persistence (Optional)
+
+**Goal**: Persistent storage and filesystems
+
+**Milestone #21**: SD Card Driver
+- EMMC controller initialization
+- Block read/write operations
+- Interrupt-driven I/O
+
+**Milestone #22**: FAT32 Filesystem
+- Parse FAT32 structures
+- File operations (open, read, write, close)
 - Directory traversal
 
-**Milestone #16**: SD Card Driver
-- EMMC controller initialization
-- Block device interface
-- Mount root filesystem
+## Phase 7: Advanced Hardware (Optional)
 
-## Phase 6: Networking
+**Goal**: Additional peripherals and buses
 
-**Milestone #17**: Ethernet Driver
-- BCM54213PE PHY configuration
-- Packet TX/RX
-- MAC address handling
-
-**Milestone #18**: TCP/IP Stack
-- IP, UDP, TCP protocols
-- Socket interface
-- DNS client
-
-**Milestone #19**: HTTP Client
-- Simple HTTP GET/POST
-- TLS (stretch goal)
-- Network utilities
-
-## Phase 7: Hardware I/O
-
-**Milestone #20**: GPIO Driver
-- Pin configuration
-- Digital I/O (read/write)
-- LED control
-
-**Milestone #21**: I2C/SPI
+**Milestone #23**: I2C/SPI Drivers
 - Bus initialization
-- Device communication
-- Sensor drivers
+- Multi-device support
+- Sensor integration
 
-## Timeline Estimate
+**Milestone #24**: USB Host Controller
+- xHCI/EHCI initialization
+- USB device enumeration
+- Keyboard/mouse/storage support
 
-- **Phase 1**: ✅ Complete (2-3 months)
-- **Phase 2**: 1-2 months
-- **Phase 3**: 2-3 months
-- **Phase 4**: 2-3 months
-- **Phase 5-7**: 3-6 months
+## Phase 8: Userspace (Optional)
 
-**Total**: ~12-18 months of weekend work
+**Goal**: Process isolation and privilege separation
+
+**Milestone #25**: EL0 Userspace
+- Drop to EL0 for user programs
+- System call interface (SVC handler)
+- User/kernel memory isolation
+
+**Milestone #26**: Process Management
+- Process creation/termination
+- Basic IPC mechanisms
+- Resource limits and scheduling
 
 ## Development Practices
 

@@ -7,8 +7,76 @@
 - **Target**: Raspberry Pi 4 Model B only (BCM2711, Cortex-A72)
 - **Language**: Rust 2024, nightly, `#![no_std]` bare-metal
 - **Architecture**: AArch64 (ARMv8-A)
-- **Current State**: Phase 2 in progress - Milestone #9 complete (GIC-400 interrupts)
-- **Next Milestone**: MMU & Paging (Phase 3)
+- **Current State**: Phase 2 complete - MMU & Paging operational
+- **Next Milestone**: GPIO driver (Phase 3)
+- **End Goal**: Network-enabled device for remote GPIO control via HTTP
+
+## Dependency Philosophy
+
+**ALWAYS prefer existing `no_std` crates over reimplementation:**
+
+- `#![no_std]` means "no standard library", NOT "no dependencies"
+- The Rust embedded ecosystem has excellent battle-tested crates
+- Focus learning on hardware/driver layer, not protocol/algorithm reimplementation
+
+**Examples of crates to use:**
+- ✅ `smoltcp` - TCP/IP stack (no_std compatible)
+- ✅ Allocator crates (linked_list_allocator, buddy allocators, etc.)
+- ✅ `embedded-hal` - Hardware abstraction traits
+- ✅ Data structure crates (heapless, etc.)
+
+**Where to implement from scratch:**
+- Hardware drivers (UART, GPIO, Ethernet PHY, etc.) - this is where the learning happens
+- Platform-specific initialization (MMU, exceptions, boot)
+- Integration/glue code between crates and hardware
+
+**When in doubt:** Check if a `no_std` crate exists first!
+
+### Crates to Consider (Future Reference)
+
+**Currently Using:**
+- `alloc` - Heap allocation primitives (Box, Vec, String, etc.)
+- Standard Rust `core` library
+
+**Planned for Networking (Phase 4):**
+- `smoltcp` - TCP/IP stack with ARP, IPv4, UDP, TCP, ICMP, DNS
+  - No-std, no-alloc capable (uses custom buffer management)
+  - Battle-tested in embedded systems
+  - Use for: Milestone #13-#15 (IP through Application protocols)
+
+**Consider for Future Milestones:**
+- `embedded-hal` - Hardware abstraction traits
+  - Provides standard traits: GPIO, SPI, I2C, delays, PWM, ADC, etc.
+  - Benefit: Access to ecosystem of sensor/peripheral drivers
+  - Trade-off: Extra abstraction layer (Pi4-only project)
+  - Use for: Milestone #23 (I2C/SPI) if using existing sensor drivers
+
+- `linked_list_allocator` or `buddy_system_allocator` - Better allocators
+  - Replaces current bump allocator
+  - Adds free/reallocation support
+  - Use for: Milestone #18 (Better Allocator)
+
+- `heapless` - Static data structures (Vec, String, etc. with compile-time size)
+  - Useful for interrupt handlers (no allocation)
+  - Consider for: Network packet buffers, ring buffers
+
+- `cortex-a` - ARMv8-A register access helpers
+  - Provides type-safe wrappers for system registers
+  - May simplify MMU/exception code
+  - Trade-off: Currently have working raw implementations
+
+- `bitflags` - Type-safe bit flag manipulation
+  - Useful for: Hardware register fields
+  - Consider for: GPIO, Ethernet, any complex register manipulation
+
+- `spin` - Spinlock primitives
+  - Use for: Milestone #19 (Multi-Core Support)
+  - Provides Mutex, RwLock, Once for no-std
+
+**Crates to Avoid:**
+- Anything requiring `std` (obviously)
+- Crates with HAL dependencies for other boards (STM32, nRF, etc.)
+- Overly generic abstractions when direct hardware access is clearer
 
 ## Quick Commands
 
