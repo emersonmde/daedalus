@@ -1,8 +1,15 @@
 use crate::drivers::uart::WRITER;
-use crate::{print, println};
+use crate::{ALLOCATOR, print, println};
+use alloc::string::String;
+use alloc::vec::Vec;
+use spin::Mutex;
 
 const LINE_BUFFER_SIZE: usize = 256;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+const MAX_HISTORY: usize = 100;
+
+// Command history storage
+static HISTORY: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 /// Shell command structure
 pub struct Command<'a> {
@@ -91,7 +98,8 @@ fn execute_command(cmd: Command) {
             println!("  echo      - Print arguments to console");
             println!("  clear     - Clear the screen");
             println!("  version   - Show kernel version");
-            println!("  meminfo   - Display memory information (TODO)");
+            println!("  meminfo   - Display memory and heap statistics");
+            println!("  history   - Show command history");
             println!("  exception - Trigger a breakpoint exception (for testing)");
         }
 
@@ -110,14 +118,38 @@ fn execute_command(cmd: Command) {
         }
 
         "meminfo" => {
-            println!("Memory information:");
-            println!("  Heap: Not yet implemented");
-            println!("  TODO: Implement heap allocator to track memory usage");
+            let total = ALLOCATOR.heap_size();
+            let used = ALLOCATOR.used();
+            let free = ALLOCATOR.free();
+
+            println!("Heap Statistics:");
+            println!("  Total: {} bytes ({} MB)", total, total / 1024 / 1024);
+            println!("  Used:  {} bytes ({} KB)", used, used / 1024);
+            println!("  Free:  {} bytes ({} MB)", free, free / 1024 / 1024);
+            println!("  Usage: {:.2}%", (used as f32 / total as f32) * 100.0);
+        }
+
+        "history" => {
+            let history = HISTORY.lock();
+            if history.is_empty() {
+                println!("No command history yet.");
+            } else {
+                println!("Command History:");
+                for (i, cmd) in history.iter().enumerate() {
+                    println!("  {}: {}", i + 1, cmd);
+                }
+            }
         }
 
         "exception" => {
             println!("Triggering breakpoint exception...");
             // Trigger a BRK instruction which will cause a synchronous exception
+            // SAFETY: BRK instruction is safe because:
+            // 1. BRK #0 is a valid AArch64 instruction that triggers a synchronous software breakpoint exception
+            // 2. Exception handlers are installed by init() before the shell runs (pre-condition: init() called)
+            // 3. The exception handler will catch this and display exception info, then panic
+            // 4. options(nostack) correctly indicates this instruction doesn't access the stack
+            // 5. This is the intended behavior for the "exception" test command
             unsafe {
                 core::arch::asm!("brk #0", options(nostack));
             }
@@ -151,6 +183,17 @@ pub fn run() -> ! {
         if let Ok(line) = core::str::from_utf8(&line_buffer[..len])
             && let Some(cmd) = Command::parse(line)
         {
+            // Add command to history (skip 'history' command itself to avoid clutter)
+            if cmd.name != "history" {
+                let mut history = HISTORY.lock();
+                history.push(String::from(line));
+
+                // Keep history size limited
+                if history.len() > MAX_HISTORY {
+                    history.remove(0);
+                }
+            }
+
             execute_command(cmd);
         }
     }

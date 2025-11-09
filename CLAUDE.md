@@ -98,6 +98,20 @@ After every milestone:
 - Document hardware intent in comments (especially registers, magic numbers)
 - snake_case for files/functions, CamelCase for types
 
+### Unsafe Code Guidelines
+- **Every `unsafe` block MUST have a `// SAFETY:` comment** explaining **WHY** it's safe
+- Document: (1) which invariants are used, (2) pre-conditions checked, (3) type guarantees
+- Justify safety via checks *before* the block or inherent type properties, NOT caller trust
+- Example:
+  ```rust
+  // Check validity first
+  assert!(heap_start < heap_end && heap_start % 16 == 0);
+  // SAFETY: just verified heap_start < heap_end and alignment
+  unsafe { ALLOCATOR.init(heap_start, heap_end); }
+  ```
+- For `unsafe fn`, add `# Safety` doc section stating caller requirements
+- Reference: https://std-dev-guide.rust-lang.org/policy/safety-comments.html
+
 ### Commit Guidelines
 - Scoped descriptive messages in present tense: "Add PL011 console", "Define Pi linker script"
 - Reference design decisions when changing boot/hardware: "Document PL011 base 0xFE201000"

@@ -1,9 +1,13 @@
 #![no_std]
 #![cfg_attr(test, no_main)]
 #![feature(custom_test_frameworks)]
+#![feature(alloc_error_handler)]
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 
+extern crate alloc;
+
+pub mod allocator;
 pub mod drivers;
 pub mod exceptions;
 pub mod qemu;
@@ -13,6 +17,16 @@ use core::fmt::{self, Write};
 
 #[cfg(test)]
 use core::panic::PanicInfo;
+
+// Global allocator
+#[global_allocator]
+static ALLOCATOR: allocator::BumpAllocator = allocator::BumpAllocator::new();
+
+/// Handler for allocation errors
+#[alloc_error_handler]
+fn alloc_error_handler(layout: alloc::alloc::Layout) -> ! {
+    panic!("Allocation error: {:?}", layout);
+}
 
 #[cfg(test)]
 #[panic_handler]
@@ -28,6 +42,32 @@ fn panic(info: &PanicInfo) -> ! {
 pub fn init() {
     drivers::uart::WRITER.lock().init();
     exceptions::init();
+
+    // Initialize heap allocator
+    // SAFETY: This code is safe because:
+    // 1. __heap_start and __heap_end are linker symbols defined in linker.ld at valid, non-overlapping addresses
+    // 2. The linker script guarantees heap_start < heap_end (8MB region: 0x800000 bytes)
+    // 3. Taking the address of linker symbols is safe (we don't dereference them, only get their addresses)
+    // 4. Pointer-to-usize cast is always safe on this platform (64-bit addresses)
+    // 5. ALLOCATOR.init() is unsafe but we satisfy its requirements:
+    //    - Called exactly once (init() itself is called once during kernel startup)
+    //    - No concurrent access (single-threaded at this point in boot)
+    //    - heap_start < heap_end (guaranteed by linker as noted above)
+    //    - Memory range is valid and reserved (linker reserves this region between BSS and stack)
+    unsafe {
+        unsafe extern "C" {
+            static __heap_start: u8;
+            static __heap_end: u8;
+        }
+        let heap_start = &__heap_start as *const u8 as usize;
+        let heap_end = &__heap_end as *const u8 as usize;
+        ALLOCATOR.init(heap_start, heap_end);
+    }
+    println!(
+        "Heap initialized: {} bytes ({} MB)",
+        ALLOCATOR.heap_size(),
+        ALLOCATOR.heap_size() / 1024 / 1024
+    );
 }
 
 /// Print implementation that acquires the UART writer lock
@@ -247,12 +287,24 @@ fn test_exception_vectors_installed() {
 
     // Check current EL and read appropriate VBAR
     let current_el: u64;
+    // SAFETY: Reading CurrentEL system register is safe because:
+    // 1. CurrentEL is a read-only system register (ARM ARM: https://developer.arm.com/documentation/ddi0601/latest/AArch64-Registers/CurrentEL--Current-Exception-Level)
+    // 2. MRS instruction with nomem,nostack has no side effects (only reads register value)
+    // 3. CurrentEL is accessible from EL1/EL2/EL3 (we run at EL1 or EL2, never EL0/usermode)
+    // 4. Bits [3:2] contain EL value, bits [63:4] and [1:0] are RES0 (reserved zero)
     unsafe {
         asm!("mrs {}, CurrentEL", out(reg) current_el, options(nomem, nostack));
     }
     let el = (current_el >> 2) & 0x3;
 
     let vbar: u64;
+    // SAFETY: Reading VBAR_ELx is safe because:
+    // 1. We determined the current EL above and select the appropriate VBAR register for that EL
+    // 2. VBAR_EL1/VBAR_EL2 are read-write registers holding exception vector table base address
+    //    - VBAR_EL1: https://developer.arm.com/documentation/ddi0601/latest/AArch64-Registers/VBAR-EL1--Vector-Base-Address-Register--EL1-
+    //    - VBAR_EL2: https://developer.arm.com/documentation/ddi0595/2020-12/AArch64-Registers/VBAR-EL2--Vector-Base-Address-Register--EL2-
+    // 3. MRS instruction with nomem,nostack has no side effects (only reads register value)
+    // 4. Reading VBAR from current EL is architecturally permitted
     unsafe {
         if el == 2 {
             asm!("mrs {}, vbar_el2", out(reg) vbar, options(nomem, nostack));
@@ -314,6 +366,71 @@ fn test_shell_parse_multiple_spaces() {
     assert_eq!(cmd.args, "   test   with   spaces");
 }
 
+// ============================================================================
+// Heap Allocator Tests
+// ============================================================================
+
+#[test_case]
+fn test_box_allocation() {
+    // Test Box allocation
+    let heap_value = alloc::boxed::Box::new(42);
+    assert_eq!(*heap_value, 42);
+}
+
+#[test_case]
+fn test_vec_allocation() {
+    use alloc::vec;
+
+    // Test Vec creation and push
+    #[allow(clippy::useless_vec)]
+    let vec = vec![1, 2, 3];
+
+    assert_eq!(vec.len(), 3);
+    assert_eq!(vec[0], 1);
+    assert_eq!(vec[1], 2);
+    assert_eq!(vec[2], 3);
+}
+
+#[test_case]
+fn test_string_allocation() {
+    use alloc::string::String;
+
+    // Test String allocation and concatenation
+    let mut s = String::from("Hello");
+    s.push_str(", ");
+    s.push_str("World!");
+
+    assert_eq!(s, "Hello, World!");
+}
+
+#[test_case]
+fn test_vec_with_capacity() {
+    use alloc::vec::Vec;
+
+    // Test Vec with pre-allocated capacity
+    let mut vec = Vec::with_capacity(10);
+    for i in 0..10 {
+        vec.push(i);
+    }
+
+    assert_eq!(vec.len(), 10);
+    assert!(vec.capacity() >= 10);
+}
+
+#[test_case]
+fn test_allocator_stats() {
+    // Check that allocator is tracking usage
+    let used_before = ALLOCATOR.used();
+
+    // Allocate something
+    let _boxed = alloc::boxed::Box::new([0u8; 1024]);
+
+    let used_after = ALLOCATOR.used();
+
+    // Usage should increase
+    assert!(used_after > used_before, "Allocator should track usage");
+}
+
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start_rust() -> ! {
@@ -321,6 +438,12 @@ pub extern "C" fn _start_rust() -> ! {
     test_main();
     loop {
         // Wait for interrupt to save power
+        // SAFETY: WFI (Wait For Interrupt) instruction is safe because:
+        // 1. WFI is a standard ARM instruction that puts the processor in low-power state
+        // 2. The instruction has no side effects beyond power management
+        // 3. options(nomem, nostack) correctly indicates no memory or stack access
+        // 4. Processor wakes on any interrupt, allowing normal operation to resume
+        // 5. This is the standard idle loop pattern for bare-metal ARM systems
         unsafe {
             core::arch::asm!("wfi", options(nomem, nostack));
         }

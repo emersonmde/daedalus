@@ -21,6 +21,29 @@
 - Use `rustfmt` (nightly) before committing; no tabs—4 spaces indentation.
 - Inline comments should explain intent, especially around hardware registers or boot code.
 
+## Unsafe Code Guidelines
+- **Every `unsafe` block must have a `// SAFETY:` comment** immediately before it explaining **WHY** the block is safe
+- Safety comments must document:
+  1. **Which invariants are used** and must be respected
+  2. **Pre-conditions** that have been checked before the unsafe block
+  3. **Type guarantees** that make the operation safe
+- Safety justification must come from:
+  - Checks performed *before* the unsafe block (e.g., bounds checks, null checks)
+  - Inherent type guarantees (e.g., NonNull, properly constructed types)
+  - **NOT** from trusting external input or caller behavior
+- Example following std-dev-guide:
+  ```rust
+  // Check boundary before unsafe operation
+  if mid > len || !is_char_boundary(mid) {
+      panic!("invalid boundary");
+  }
+  // SAFETY: just checked that `mid` is on a char boundary
+  unsafe { ... }
+  ```
+- For `unsafe fn`, add `# Safety` section in doc comment explaining what callers must ensure
+- Avoid vague comments like "this is safe" - explain the specific invariants/pre-conditions
+- Reference: Rust std-dev-guide Safety Comments: https://std-dev-guide.rust-lang.org/policy/safety-comments.html
+
 ## Architecture Decision Protocol
 - Treat any boot-flow, linker, or hardware-interface change as a one-way door. Review `PROJECT.md`, socialize the plan, and record the rationale + rollback strategy there before landing code.
 - When in doubt (e.g., touching memory maps, experimenting with new SoCs), pause development and document the proposal in `PROJECT.md` for approval.

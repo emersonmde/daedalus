@@ -6,6 +6,29 @@ use volatile::Volatile;
 /// PL011 UART base address for Raspberry Pi 4
 const UART_BASE: usize = 0xFE20_1000;
 
+/// PL011 UART register bit definitions
+/// Reference: ARM PL011 TRM https://developer.arm.com/documentation/ddi0183/latest/
+mod pl011_flags {
+    // Flag Register (FR) bits - Section 3.3.6
+    pub const FR_TXFF: u32 = 1 << 5; // Transmit FIFO full
+    pub const FR_RXFE: u32 = 1 << 4; // Receive FIFO empty
+
+    // Line Control Register (LCRH) bits - Section 3.3.7
+    pub const LCRH_FEN: u32 = 1 << 4; // FIFO enable
+    pub const LCRH_WLEN_8BIT: u32 = 0b11 << 5; // 8-bit word length
+
+    // Control Register (CR) bits - Section 3.3.8
+    pub const CR_UARTEN: u32 = 1 << 0; // UART enable
+    pub const CR_TXE: u32 = 1 << 8; // Transmit enable
+    pub const CR_RXE: u32 = 1 << 9; // Receive enable
+
+    // Data Register (DR) bits - Section 3.3.1
+    pub const DR_DATA_MASK: u32 = 0xFF; // Data bits [7:0]
+
+    // Interrupt Clear Register (ICR) - Section 3.3.13
+    pub const ICR_ALL: u32 = 0x7FF; // Clear all interrupts
+}
+
 lazy_static! {
     pub static ref WRITER: Mutex<UartWriter> = Mutex::new(UartWriter::new());
 }
@@ -43,6 +66,18 @@ impl UartWriter {
     /// Create a new UART writer instance
     pub const fn new() -> Self {
         UartWriter {
+            // SAFETY: Creating a reference to MMIO registers is safe because:
+            // 1. UART_BASE (0xFE201000) is the documented PL011 UART0 base address for RPi4:
+            //    - BCM2711 peripherals start at 0xFE000000 in Low Peripheral Mode (default)
+            //    - UART0 offset is 0x00201000 from peripheral base
+            //    - Reference: https://datasheets.raspberrypi.com/bcm2711/bcm2711-peripherals.pdf
+            // 2. This address is reserved by the hardware and will never be used for other purposes
+            // 3. The memory-mapped registers are always present and accessible
+            // 4. Pl011Registers struct matches the PL011 register layout exactly:
+            //    - Reference: ARM PL011 TRM https://developer.arm.com/documentation/ddi0183/latest/
+            //    - See Section 3.2 "Summary of registers" for register offsets
+            // 5. UartWriter is wrapped in a Mutex (WRITER static), ensuring exclusive access
+            // 6. This is a const fn, so the reference is created once at compile-time/static init
             registers: unsafe { &mut *(UART_BASE as *mut Pl011Registers) },
             initialized: false,
         }
@@ -60,7 +95,7 @@ impl UartWriter {
         self.registers.imsc.write(0);
 
         // Clear all pending interrupts
-        self.registers.icr.write(0x7FF);
+        self.registers.icr.write(pl011_flags::ICR_ALL);
 
         // Set baud rate divisors for 115200 @ 54 MHz
         // Divisor = 54,000,000 / (16 * 115200) = 29.296875
@@ -69,14 +104,14 @@ impl UartWriter {
         self.registers.fbrd.write(19);
 
         // Configure line control: 8 bits, FIFO enabled, no parity
-        // LCRH = (1<<4) | (1<<5) | (1<<6)
-        //      = FIFO enable | 8-bit word length
-        self.registers.lcrh.write(0x70);
+        self.registers
+            .lcrh
+            .write(pl011_flags::LCRH_FEN | pl011_flags::LCRH_WLEN_8BIT);
 
         // Enable UART, TX, and RX
-        // CR = (1<<0) | (1<<8) | (1<<9)
-        //    = UART enable | TX enable | RX enable
-        self.registers.cr.write(0x301);
+        self.registers
+            .cr
+            .write(pl011_flags::CR_UARTEN | pl011_flags::CR_TXE | pl011_flags::CR_RXE);
 
         self.initialized = true;
     }
@@ -87,8 +122,8 @@ impl UartWriter {
             self.init();
         }
 
-        // Wait until transmit FIFO is not full (FR bit 5 = TXFF)
-        while (self.registers.fr.read() & (1 << 5)) != 0 {}
+        // Wait until transmit FIFO is not full
+        while (self.registers.fr.read() & pl011_flags::FR_TXFF) != 0 {}
 
         // Write the byte
         self.registers.dr.write(byte as u32);
@@ -114,11 +149,11 @@ impl UartWriter {
             self.init();
         }
 
-        // Wait until receive FIFO is not empty (FR bit 4 = RXFE)
-        while (self.registers.fr.read() & (1 << 4)) != 0 {}
+        // Wait until receive FIFO is not empty
+        while (self.registers.fr.read() & pl011_flags::FR_RXFE) != 0 {}
 
         // Read and return the byte (only lower 8 bits are data)
-        (self.registers.dr.read() & 0xFF) as u8
+        (self.registers.dr.read() & pl011_flags::DR_DATA_MASK) as u8
     }
 }
 

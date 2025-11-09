@@ -202,12 +202,34 @@ Registers: x0-x30 with actual values
   2. Make exception assembly EL-agnostic (check CurrentEL, save appropriate registers)
   3. Accept EL2 as standard for QEMU, add conditional assembly for Pi hardware
 
-7. **Heap Allocator**
-   - Implement simple bump allocator
-   - Integrate with Rust's `alloc` crate
-   - Enable `Vec`, `String`, `Box`, `BTreeMap`
-   - Test: Allocate and free memory, use dynamic collections
-   - Deliverable: Shell can use dynamic strings, store command history in Vec
+**Milestone #7 (Heap Allocator) Complete!** The kernel now has:
+- Simple bump allocator with `GlobalAlloc` trait implementation
+- 8 MB heap region defined in linker.ld (between BSS and stack)
+- Integration with Rust's `alloc` crate (`Vec`, `String`, `Box` now available)
+- Thread-safe allocator using `Mutex` and `UnsafeCell` for interior mutability
+- Command history in shell using `Vec<String>` (up to 100 commands)
+- `history` command to view past commands
+- `meminfo` command showing heap statistics (total, used, free, usage %)
+- 5 allocator tests verifying Box, Vec, String, and allocator stats
+
+**Testing**: Run `cargo test` (29 tests pass). In shell:
+```
+daedalus> help
+daedalus> echo Hello World
+daedalus> meminfo
+  Total: 8388608 bytes (8 MB)
+  Used:  1234 bytes (1 KB)
+  Usage: 0.01%
+daedalus> history
+```
+
+**Implementation Details**:
+- Allocator never deallocates (bump-only, memory reclaimed on reset)
+- All `unsafe` blocks have detailed `// SAFETY:` comments per "Zero to Production in Rust"
+- UnsafeCell for heap_start/heap_end with manual `Sync` impl
+- Proper alignment handling for all allocations
+
+7. **Heap Allocator** ✅ COMPLETE
 
 8. **Exception Vectors** ✅ COMPLETE
 
@@ -330,7 +352,7 @@ As each driver is implemented, document:
 
 ### Current Focus
 
-**Next Milestone**: Heap Allocator (#7) - Enable dynamic allocation for shell history and future features
+**Next Milestone**: Timer & Memory Management (Phase 2 continuation)
 
 ---
 

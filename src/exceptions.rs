@@ -8,6 +8,34 @@
 use crate::println;
 use core::arch::asm;
 
+/// ESR (Exception Syndrome Register) field definitions
+/// Reference: ARM ARM https://developer.arm.com/documentation/ddi0595/2020-12/AArch64-Registers/ESR-EL1--Exception-Syndrome-Register--EL1-
+mod esr_fields {
+    /// Exception Class (EC) field - bits [31:26]
+    pub const EC_SHIFT: u32 = 26;
+    pub const EC_MASK: u64 = 0x3F;
+
+    /// Instruction Specific Syndrome (ISS) field - bits [24:0]
+    pub const ISS_MASK: u64 = 0x1FFFFFF;
+}
+
+/// Read current exception level (EL0-EL3)
+///
+/// Returns the current exception level as a u8 (0, 1, 2, or 3).
+/// This is a helper to avoid repeating the same unsafe block throughout the module.
+fn current_el() -> u8 {
+    let current_el: u64;
+    // SAFETY: Reading CurrentEL system register is safe because:
+    // 1. CurrentEL is a read-only system register (ARM ARM: https://developer.arm.com/documentation/ddi0601/latest/AArch64-Registers/CurrentEL--Current-Exception-Level)
+    // 2. MRS instruction with nomem,nostack has no side effects (only reads register value)
+    // 3. CurrentEL is accessible from EL1/EL2/EL3 (we run at EL1 or EL2, never EL0/usermode)
+    // 4. Bits [3:2] contain EL value, bits [63:4] and [1:0] are RES0 (reserved zero)
+    unsafe {
+        asm!("mrs {}, CurrentEL", out(reg) current_el, options(nomem, nostack));
+    }
+    ((current_el >> 2) & 0x3) as u8
+}
+
 /// Exception context saved by assembly stub
 /// Layout must match SAVE_CONTEXT macro in exceptions.s
 #[repr(C)]
@@ -79,13 +107,17 @@ pub struct ExceptionSyndrome {
 impl ExceptionSyndrome {
     /// Read ESR for current EL
     pub fn read() -> Self {
-        let current_el: u64;
-        unsafe {
-            asm!("mrs {}, CurrentEL", out(reg) current_el, options(nomem, nostack));
-        }
-        let el = (current_el >> 2) & 0x3;
+        let el = current_el();
 
         let esr: u64;
+        // SAFETY: Reading ESR_ELx is safe because:
+        // 1. We determined the current EL above and select the appropriate ESR register for that EL
+        // 2. ESR_EL1/ESR_EL2 are read-only status registers holding exception syndrome information
+        //    - ESR_EL1: https://developer.arm.com/documentation/ddi0595/2020-12/AArch64-Registers/ESR-EL1--Exception-Syndrome-Register--EL1-
+        //    - ESR_EL2: https://developer.arm.com/documentation/ddi0601/2022-03/AArch64-Registers/ESR-EL2--Exception-Syndrome-Register--EL2-
+        // 3. Hardware populates ESR_ELx when taking exception to that EL; no side effects on read
+        // 4. MRS instruction with nomem,nostack has no side effects (only reads register value)
+        // 5. Reading ESR from current EL is architecturally permitted
         unsafe {
             if el == 2 {
                 asm!("mrs {}, esr_el2", out(reg) esr, options(nomem, nostack));
@@ -94,8 +126,8 @@ impl ExceptionSyndrome {
             }
         }
         Self {
-            ec: ((esr >> 26) & 0x3F) as u32,
-            iss: (esr & 0x1FFFFFF) as u32,
+            ec: ((esr >> esr_fields::EC_SHIFT) & esr_fields::EC_MASK) as u32,
+            iss: (esr & esr_fields::ISS_MASK) as u32,
         }
     }
 
@@ -144,13 +176,17 @@ impl ExceptionSyndrome {
 
 /// Read FAR (Faulting Address Register) for current EL
 fn read_far() -> u64 {
-    let current_el: u64;
-    unsafe {
-        asm!("mrs {}, CurrentEL", out(reg) current_el, options(nomem, nostack));
-    }
-    let el = (current_el >> 2) & 0x3;
+    let el = current_el();
 
     let far: u64;
+    // SAFETY: Reading FAR_ELx is safe because:
+    // 1. We determined the current EL above and select the appropriate FAR register for that EL
+    // 2. FAR_EL1/FAR_EL2 are read-only status registers holding faulting virtual address
+    //    - FAR_EL1: https://developer.arm.com/documentation/ddi0601/latest/AArch64-Registers/FAR-EL1--Fault-Address-Register--EL1-
+    //    - FAR_EL2: https://developer.arm.com/documentation/ddi0595/latest/AArch64-Registers/FAR-EL2--Fault-Address-Register--EL2-
+    // 3. Hardware populates FAR_ELx on instruction/data aborts and alignment faults; no side effects on read
+    // 4. MRS instruction with nomem,nostack has no side effects (only reads register value)
+    // 5. Reading FAR from current EL is architecturally permitted
     unsafe {
         if el == 2 {
             asm!("mrs {}, far_el2", out(reg) far, options(nomem, nostack));
@@ -236,13 +272,19 @@ unsafe extern "C" {
 /// Install the exception vector table by setting VBAR_EL1 or VBAR_EL2
 pub fn init() {
     // Check current exception level
-    let current_el: u64;
-    unsafe {
-        asm!("mrs {}, CurrentEL", out(reg) current_el, options(nomem, nostack));
-    }
-    let el = (current_el >> 2) & 0x3;
+    let el = current_el();
     println!("Current Exception Level: EL{}", el);
 
+    // SAFETY: Setting VBAR_ELx is safe because:
+    // 1. We determined the current EL above and select the appropriate VBAR register for that EL
+    // 2. VBAR_EL1/VBAR_EL2 are read-write registers holding exception vector table base address
+    //    - VBAR_EL1: https://developer.arm.com/documentation/ddi0601/latest/AArch64-Registers/VBAR-EL1--Vector-Base-Address-Register--EL1-
+    //    - VBAR_EL2: https://developer.arm.com/documentation/ddi0595/2020-12/AArch64-Registers/VBAR-EL2--Vector-Base-Address-Register--EL2-
+    // 3. exception_vector_table is a valid symbol defined in exceptions.s by the assembler
+    // 4. The vector table is properly aligned (2KB alignment enforced by .align 11 directive in assembly)
+    // 5. We're setting VBAR for the current EL, which is architecturally permitted
+    // 6. ISB (Instruction Synchronization Barrier) ensures all subsequent instructions see the new VBAR value
+    // 7. MSR with nomem,nostack only writes to system register (no memory/stack access)
     unsafe {
         let vbar = &exception_vector_table as *const u64 as u64;
 
@@ -263,6 +305,10 @@ pub fn init() {
             );
         }
     }
+    // SAFETY: Taking the address of exception_vector_table is safe because:
+    // 1. exception_vector_table is a valid linker symbol defined in exceptions.s
+    // 2. We only take the address (as pointer cast to u64), we don't dereference the memory
+    // 3. This is used only for display purposes
     println!("Exception vectors installed at 0x{:016x}", unsafe {
         &exception_vector_table as *const u64 as u64
     });

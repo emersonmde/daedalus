@@ -38,8 +38,15 @@ SECTIONS
         __bss_end = .;
     }
 
+    /* Heap for dynamic memory allocation */
+    /* Reserve 8MB for heap after BSS */
+    . = ALIGN(16);
+    __heap_start = .;
+    . += 0x800000;
+    __heap_end = .;
+
     /* Stack grows downward from high memory */
-    /* Reserve 2MB for stack after BSS */
+    /* Reserve 2MB for stack after heap */
     . = ALIGN(16);
     . += 0x200000;
     _stack_start = .;
