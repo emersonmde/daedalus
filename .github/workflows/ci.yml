@@ -140,7 +140,7 @@ jobs:
       - name: Install Rust nightly
         uses: dtolnay/rust-toolchain@nightly
         with:
-          components: rust-src, rustdoc
+          components: rust-src, llvm-tools
 
       - uses: Swatinem/rust-cache@v2
 
