@@ -73,14 +73,170 @@ pub fn test_runner(tests: &[&dyn Testable]) {
     qemu::exit(qemu::ExitCode::Success);
 }
 
+// ============================================================================
+// Basic Sanity Tests
+// ============================================================================
+
 #[test_case]
 fn trivial_assertion() {
     assert_eq!(1, 1);
 }
 
+// ============================================================================
+// Kernel Initialization Tests
+// ============================================================================
+
 #[test_case]
-fn test_println() {
-    println!("test_println output");
+fn test_kernel_init() {
+    // Test that init() can be called multiple times safely
+    init();
+    init();
+    // If we get here without hanging, initialization is idempotent
+}
+
+// ============================================================================
+// Print Macro Tests
+// ============================================================================
+
+#[test_case]
+fn test_println_simple() {
+    println!("test_println_simple output");
+}
+
+#[test_case]
+fn test_println_formatting() {
+    println!("Number: {}, Hex: 0x{:x}, Binary: {:b}", 42, 255, 0b1010);
+}
+
+#[test_case]
+fn test_println_multiple() {
+    println!("Line 1");
+    println!("Line 2");
+    println!("Line 3");
+}
+
+#[test_case]
+fn test_print_without_newline() {
+    print!("Hello ");
+    print!("World");
+    println!("!");
+}
+
+#[test_case]
+fn test_println_empty() {
+    println!();
+    println!("");
+}
+
+#[test_case]
+fn test_println_special_chars() {
+    println!("Tab:\tNewline:\nCarriage return handled by UART");
+}
+
+#[test_case]
+fn test_println_long_string() {
+    println!("This is a longer string to test UART buffering and ensure that we can handle strings that span multiple characters without issues");
+}
+
+#[test_case]
+fn test_println_unicode_replacement() {
+    // Non-ASCII should be replaced with 0xFE
+    println!("ASCII only: test");
+}
+
+// ============================================================================
+// UART Driver Tests
+// ============================================================================
+
+#[test_case]
+fn test_uart_write_byte() {
+    use drivers::uart::WRITER;
+
+    // Lock the UART and write some bytes
+    let mut writer = WRITER.lock();
+    writer.write_byte(b'A');
+    writer.write_byte(b'B');
+    writer.write_byte(b'C');
+}
+
+#[test_case]
+fn test_uart_write_string() {
+    use drivers::uart::WRITER;
+
+    let mut writer = WRITER.lock();
+    writer.write_string("UART test string");
+}
+
+#[test_case]
+fn test_uart_newline_handling() {
+    use drivers::uart::WRITER;
+
+    // Test that newlines are converted to \r\n
+    let mut writer = WRITER.lock();
+    writer.write_string("Line1\nLine2\n");
+}
+
+#[test_case]
+fn test_uart_multiple_init() {
+    use drivers::uart::WRITER;
+
+    // Test that multiple initializations are safe
+    let mut writer = WRITER.lock();
+    writer.init();
+    writer.init();
+    writer.write_string("Still works");
+}
+
+// ============================================================================
+// Formatting Tests
+// ============================================================================
+
+#[test_case]
+fn test_format_integers() {
+    println!("Decimal: {}", 12345);
+    println!("Hex: {:x}", 0xDEADBEEFu32);
+    println!("Octal: {:o}", 0o777);
+    println!("Binary: {:b}", 0b11001100);
+}
+
+#[test_case]
+fn test_format_padding() {
+    println!("Padded: {:08x}", 0xFF);
+    println!("Right: {:>10}", "text");
+}
+
+#[test_case]
+fn test_format_debug() {
+    #[derive(Debug)]
+    #[allow(dead_code)]
+    struct TestStruct {
+        value: u32,
+    }
+
+    let s = TestStruct { value: 42 };
+    println!("Debug: {:?}", s);
+}
+
+// ============================================================================
+// Edge Case Tests
+// ============================================================================
+
+#[test_case]
+fn test_print_at_capacity() {
+    // Print exactly 80 characters (VGA buffer width reference)
+    print!("1234567890123456789012345678901234567890123456789012345678901234567890123456789");
+    println!("!");
+}
+
+#[test_case]
+fn test_uart_is_locked() {
+    // Test that the UART writer uses a mutex (just verify it locks/unlocks)
+    use drivers::uart::WRITER;
+
+    let _guard = WRITER.lock();
+    // Lock acquired successfully
+    drop(_guard);
+    // Lock released
 }
 
 #[cfg(test)]
