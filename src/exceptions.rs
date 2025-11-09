@@ -1,0 +1,266 @@
+/// Exception handling for AArch64
+///
+/// This module provides the exception vector table and handlers for:
+/// - Synchronous exceptions (data/instruction aborts, undefined instructions, etc.)
+/// - IRQ (normal interrupts)
+/// - FIQ (fast interrupts)
+/// - SError (system errors)
+
+use crate::println;
+use core::arch::asm;
+
+/// Exception context saved by assembly stub
+/// Layout must match SAVE_CONTEXT macro in exceptions.s
+#[repr(C)]
+pub struct ExceptionContext {
+    pub elr_el1: u64,    // Exception Link Register (return address)
+    pub x30: u64,        // Link Register
+    pub spsr_el1: u64,   // Saved Program Status Register
+    pub x28: u64,
+    pub x29: u64,
+    pub x26: u64,
+    pub x27: u64,
+    pub x24: u64,
+    pub x25: u64,
+    pub x22: u64,
+    pub x23: u64,
+    pub x20: u64,
+    pub x21: u64,
+    pub x18: u64,
+    pub x19: u64,
+    pub x16: u64,
+    pub x17: u64,
+    pub x14: u64,
+    pub x15: u64,
+    pub x12: u64,
+    pub x13: u64,
+    pub x10: u64,
+    pub x11: u64,
+    pub x8: u64,
+    pub x9: u64,
+    pub x6: u64,
+    pub x7: u64,
+    pub x4: u64,
+    pub x5: u64,
+    pub x2: u64,
+    pub x3: u64,
+    pub x0: u64,
+    pub x1: u64,
+}
+
+/// Exception types
+#[derive(Debug)]
+#[repr(u64)]
+pub enum ExceptionType {
+    Synchronous = 0,
+    Irq = 1,
+    Fiq = 2,
+    SError = 3,
+}
+
+impl ExceptionType {
+    fn from_u64(value: u64) -> Self {
+        match value {
+            0 => ExceptionType::Synchronous,
+            1 => ExceptionType::Irq,
+            2 => ExceptionType::Fiq,
+            3 => ExceptionType::SError,
+            _ => ExceptionType::Synchronous,
+        }
+    }
+}
+
+/// Exception Syndrome Register (ESR_ELx) fields
+#[derive(Debug)]
+pub struct ExceptionSyndrome {
+    pub ec: u32,    // Exception Class
+    pub iss: u32,   // Instruction Specific Syndrome
+}
+
+impl ExceptionSyndrome {
+    /// Read ESR for current EL
+    pub fn read() -> Self {
+        let current_el: u64;
+        unsafe {
+            asm!("mrs {}, CurrentEL", out(reg) current_el, options(nomem, nostack));
+        }
+        let el = (current_el >> 2) & 0x3;
+
+        let esr: u64;
+        unsafe {
+            if el == 2 {
+                asm!("mrs {}, esr_el2", out(reg) esr, options(nomem, nostack));
+            } else {
+                asm!("mrs {}, esr_el1", out(reg) esr, options(nomem, nostack));
+            }
+        }
+        Self {
+            ec: ((esr >> 26) & 0x3F) as u32,
+            iss: (esr & 0x1FFFFFF) as u32,
+        }
+    }
+
+    /// Get exception class description
+    pub fn exception_class_str(&self) -> &'static str {
+        match self.ec {
+            0x00 => "Unknown reason",
+            0x01 => "Trapped WFI/WFE",
+            0x03 => "Trapped MCR/MRC (CP15)",
+            0x04 => "Trapped MCRR/MRRC (CP15)",
+            0x05 => "Trapped MCR/MRC (CP14)",
+            0x06 => "Trapped LDC/STC",
+            0x07 => "Trapped FP/SIMD",
+            0x0C => "Trapped MRRC (CP14)",
+            0x0E => "Illegal Execution State",
+            0x11 => "SVC instruction (AArch32)",
+            0x12 => "HVC instruction (AArch32)",
+            0x13 => "SMC instruction (AArch32)",
+            0x15 => "SVC instruction (AArch64)",
+            0x16 => "HVC instruction (AArch64)",
+            0x17 => "SMC instruction (AArch64)",
+            0x18 => "Trapped MSR/MRS/System instruction",
+            0x1F => "Implementation defined (EL3)",
+            0x20 => "Instruction Abort (lower EL)",
+            0x21 => "Instruction Abort (same EL)",
+            0x22 => "PC alignment fault",
+            0x24 => "Data Abort (lower EL)",
+            0x25 => "Data Abort (same EL)",
+            0x26 => "SP alignment fault",
+            0x28 => "Trapped FP (AArch32)",
+            0x2C => "Trapped FP (AArch64)",
+            0x2F => "SError",
+            0x30 => "Breakpoint (lower EL)",
+            0x31 => "Breakpoint (same EL)",
+            0x32 => "Software Step (lower EL)",
+            0x33 => "Software Step (same EL)",
+            0x34 => "Watchpoint (lower EL)",
+            0x35 => "Watchpoint (same EL)",
+            0x38 => "BKPT instruction (AArch32)",
+            0x3A => "Vector Catch (AArch32)",
+            0x3C => "BRK instruction (AArch64)",
+            _ => "Reserved/Unknown",
+        }
+    }
+}
+
+/// Read FAR (Faulting Address Register) for current EL
+fn read_far() -> u64 {
+    let current_el: u64;
+    unsafe {
+        asm!("mrs {}, CurrentEL", out(reg) current_el, options(nomem, nostack));
+    }
+    let el = (current_el >> 2) & 0x3;
+
+    let far: u64;
+    unsafe {
+        if el == 2 {
+            asm!("mrs {}, far_el2", out(reg) far, options(nomem, nostack));
+        } else {
+            asm!("mrs {}, far_el1", out(reg) far, options(nomem, nostack));
+        }
+    }
+    far
+}
+
+/// Print exception context with register dump
+fn print_exception_context(ctx: &ExceptionContext, exc_type: ExceptionType, source: &str) {
+    let esr = ExceptionSyndrome::read();
+    let far = read_far();
+
+    println!("\n!!! EXCEPTION !!!");
+    println!("Source: {}", source);
+    println!("Type: {:?}", exc_type);
+    println!("Exception Class: 0x{:02x} ({})", esr.ec, esr.exception_class_str());
+    println!("ISS: 0x{:07x}", esr.iss);
+    println!("ELR (return addr): 0x{:016x}", ctx.elr_el1);
+    println!("FAR (fault addr):  0x{:016x}", far);
+    println!("SPSR: 0x{:016x}", ctx.spsr_el1);
+    println!("\nRegisters:");
+    println!("  x0: 0x{:016x}  x1: 0x{:016x}", ctx.x0, ctx.x1);
+    println!("  x2: 0x{:016x}  x3: 0x{:016x}", ctx.x2, ctx.x3);
+    println!("  x4: 0x{:016x}  x5: 0x{:016x}", ctx.x4, ctx.x5);
+    println!("  x6: 0x{:016x}  x7: 0x{:016x}", ctx.x6, ctx.x7);
+    println!("  x8: 0x{:016x}  x9: 0x{:016x}", ctx.x8, ctx.x9);
+    println!(" x10: 0x{:016x} x11: 0x{:016x}", ctx.x10, ctx.x11);
+    println!(" x12: 0x{:016x} x13: 0x{:016x}", ctx.x12, ctx.x13);
+    println!(" x14: 0x{:016x} x15: 0x{:016x}", ctx.x14, ctx.x15);
+    println!(" x16: 0x{:016x} x17: 0x{:016x}", ctx.x16, ctx.x17);
+    println!(" x18: 0x{:016x} x19: 0x{:016x}", ctx.x18, ctx.x19);
+    println!(" x20: 0x{:016x} x21: 0x{:016x}", ctx.x20, ctx.x21);
+    println!(" x22: 0x{:016x} x23: 0x{:016x}", ctx.x22, ctx.x23);
+    println!(" x24: 0x{:016x} x25: 0x{:016x}", ctx.x24, ctx.x25);
+    println!(" x26: 0x{:016x} x27: 0x{:016x}", ctx.x26, ctx.x27);
+    println!(" x28: 0x{:016x} x29: 0x{:016x}", ctx.x28, ctx.x29);
+    println!(" x30: 0x{:016x}", ctx.x30);
+}
+
+//-----------------------------------------------------------------------------
+// Exception handlers called from assembly
+//-----------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+extern "C" fn exception_handler_el1_sp0(ctx: &ExceptionContext, exc_type: u64) {
+    print_exception_context(ctx, ExceptionType::from_u64(exc_type), "Current EL (SP0)");
+    panic!("Unhandled exception");
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn exception_handler_el1_spx(ctx: &ExceptionContext, exc_type: u64) {
+    print_exception_context(ctx, ExceptionType::from_u64(exc_type), "Current EL (SPx)");
+    panic!("Unhandled exception");
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn exception_handler_lower_aa64(ctx: &ExceptionContext, exc_type: u64) {
+    print_exception_context(ctx, ExceptionType::from_u64(exc_type), "Lower EL (AArch64)");
+    panic!("Unhandled exception");
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn exception_handler_lower_aa32(ctx: &ExceptionContext, exc_type: u64) {
+    print_exception_context(ctx, ExceptionType::from_u64(exc_type), "Lower EL (AArch32)");
+    panic!("Unhandled exception");
+}
+
+//-----------------------------------------------------------------------------
+// Exception vector table installation
+//-----------------------------------------------------------------------------
+
+unsafe extern "C" {
+    static exception_vector_table: u64;
+}
+
+/// Install the exception vector table by setting VBAR_EL1 or VBAR_EL2
+pub fn init() {
+    // Check current exception level
+    let current_el: u64;
+    unsafe {
+        asm!("mrs {}, CurrentEL", out(reg) current_el, options(nomem, nostack));
+    }
+    let el = (current_el >> 2) & 0x3;
+    println!("Current Exception Level: EL{}", el);
+
+    unsafe {
+        let vbar = &exception_vector_table as *const u64 as u64;
+
+        // Set VBAR for the current exception level
+        if el == 2 {
+            asm!(
+                "msr vbar_el2, {}",
+                "isb",
+                in(reg) vbar,
+                options(nomem, nostack)
+            );
+        } else {
+            asm!(
+                "msr vbar_el1, {}",
+                "isb",
+                in(reg) vbar,
+                options(nomem, nostack)
+            );
+        }
+    }
+    println!("Exception vectors installed at 0x{:016x}", unsafe {
+        &exception_vector_table as *const u64 as u64
+    });
+}

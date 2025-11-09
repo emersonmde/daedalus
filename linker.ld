@@ -10,6 +10,11 @@ SECTIONS
         KEEP(*(.text.boot))
     }
 
+    /* Exception vectors - MUST be aligned to 2048 bytes (0x800) */
+    .text.exceptions : ALIGN(0x800) {
+        KEEP(*(.text.exceptions))
+    }
+
     /* Main code section */
     .text : {
         *(.text .text.*)

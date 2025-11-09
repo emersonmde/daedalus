@@ -117,7 +117,7 @@ Dependencies: `llvm-tools` (rustup component), `rust-src` (rustup component), `c
 - **Test Runner**: `qemu-runner.sh` converts ELF to binary and launches QEMU with semihosting
 - **Exit Mechanism**: ARM semihosting (HLT #0xF000) with proper parameter block for ADP_Stopped_ApplicationExit
 - **Exit Codes**: Status 0 on success, status 1 on failure (properly communicated to host)
-- **Coverage**: 24 tests covering kernel init, UART driver, print macros, formatting, shell parsing, edge cases
+- **Coverage**: 25 tests covering kernel init, UART driver, print macros, formatting, shell parsing, exception vectors, edge cases
 
 ### Running Tests
 
@@ -149,10 +149,14 @@ fn test_something() {
 ### Completed Milestones ✅
 
 1. **Boot & Console** - AArch64 assembly entry, core parking, BSS zeroing, stack setup, PL011 UART driver with TX
-2. **Testing Infrastructure** - Custom test framework with QEMU integration, 19 comprehensive tests, proper exit codes
+2. **Testing Infrastructure** - Custom test framework with QEMU integration, proper exit codes
 3. **UART Input** - Polling-based RX implementation, character echo, backspace/line editing support (Ctrl-U, Ctrl-C)
 4. **Command Parser** - Line buffering, command/argument splitting, ASCII input handling
 5. **Shell Loop** - Interactive REPL with prompt, built-in commands (help, echo, clear, version, meminfo), error handling
+6. **Exception Vectors** - Exception table (16 vectors), context save/restore, ESR/ELR/FAR decoding, register dump on panic
+   - **Tech Debt**: Currently runs at EL2 (QEMU default), assembly hardcodes EL1 register saves (ELR_EL1/SPSR_EL1)
+   - **Impact**: ELR/SPSR/FAR show as zero in exception dumps (saved registers are correct, system registers are wrong EL)
+   - **Future**: Either drop to EL1 during boot, or make exception assembly EL-agnostic
 
 ### Phase 1: Interactive Shell ✅ COMPLETE
 
@@ -173,21 +177,41 @@ All Phase 1 milestones completed! The kernel now boots into an interactive shell
 
 **Goal**: Foundation for dynamic allocation, interrupt-driven I/O, and time-based operations
 
-6. **Heap Allocator**
+**Milestone #7 (Exception Vectors) Complete!** The kernel now has:
+- 16-entry exception vector table (4 exception types × 4 exception levels) in assembly
+- Context save/restore macros (all GPRs + ELR + SPSR)
+- Exception handlers in Rust with full register dump (x0-x30)
+- ESR decoding with 40+ exception class descriptions
+- FAR (fault address) reporting
+- VBAR installation at kernel init (EL1 or EL2 based on current EL)
+- Test command: `exception` in shell triggers BRK instruction
+
+**Testing**: Run `cargo test` (25 tests pass). In shell, type `exception` to see:
+```
+Exception Class: 0x3c (BRK instruction (AArch64))
+Registers: x0-x30 with actual values
+```
+
+**Known Limitation (Tech Debt)**:
+- QEMU boots at EL2, real Pi 4 hardware may boot at EL1
+- Exception assembly hardcodes `elr_el1`/`spsr_el1` saves (should be EL-specific)
+- Current workaround: Rust code detects EL and sets VBAR_EL2 when at EL2
+- Impact: ELR/SPSR show as zero in dumps (wrong EL register read), but GPRs are correct
+- Future fix options:
+  1. Drop to EL1 during boot (requires proper EL2→EL1 transition with HCR_EL2 setup)
+  2. Make exception assembly EL-agnostic (check CurrentEL, save appropriate registers)
+  3. Accept EL2 as standard for QEMU, add conditional assembly for Pi hardware
+
+7. **Heap Allocator**
    - Implement simple bump allocator
    - Integrate with Rust's `alloc` crate
    - Enable `Vec`, `String`, `Box`, `BTreeMap`
    - Test: Allocate and free memory, use dynamic collections
    - Deliverable: Shell can use dynamic strings, store command history in Vec
 
-7. **Exception Vectors**
-   - Set up EL1 exception table (sync/IRQ/FIQ/SError)
-   - Implement basic exception handlers (panic with context dump)
-   - Test synchronous exceptions (divide by zero, etc.)
-   - Test: Trigger exception and see detailed panic with registers
-   - Deliverable: Proper exception handling instead of silent hangs
+8. **Exception Vectors** ✅ COMPLETE
 
-8. **ARM Generic Timer**
+9. **ARM Generic Timer**
    - Configure and enable ARM Generic Timer
    - Read CNTFRQ_EL0 and CNTPCT_EL0
    - Implement timer interrupts
@@ -195,7 +219,7 @@ All Phase 1 milestones completed! The kernel now boots into an interactive shell
    - Test: Timer ticks, delays work accurately
    - Deliverable: Shell command `sleep 5` waits 5 seconds, periodic ticks
 
-9. **Memory Management (MMU)**
+10. **Memory Management (MMU)**
    - Design initial page table layout (identity-map + higher-half)
    - Enable MMU with appropriate cache/barrier setup
    - Identity-map first 64 MiB, map MMIO as device memory
@@ -306,7 +330,7 @@ As each driver is implemented, document:
 
 ### Current Focus
 
-**Next Milestone**: Heap Allocator (#6) - Enable dynamic allocation for shell history and future features
+**Next Milestone**: Heap Allocator (#7) - Enable dynamic allocation for shell history and future features
 
 ---
 

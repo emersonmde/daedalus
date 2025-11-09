@@ -38,8 +38,10 @@
 - After milestone testing completes, update `README.md`, `PROJECT.md`, and this file with any new commands, architectural notes, or behavior changes uncovered during the work.
 
 ## Tooling & CLI Usage
-- Favor built-in tools over custom bash comamnds even for mundane tasks (listing files, showing snippets, searching) because each ad-hoc `bash` invocation needs approval; keep the workflow approval-light by leaning on the provided tools first.
+- Favor built-in tools over custom bash commands even for mundane tasks (listing files, showing snippets, searching) because each ad-hoc `bash` invocation needs approval; keep the workflow approval-light by leaning on the provided tools first.
 - If a shell wrapper (`bash -lc`, custom script) is genuinely required, clearly document the reason in your notes/PR so reviewers know why the builtin path was insufficient.
+- **NEVER run `cargo run` in the background** - Claude Code cannot interact with the shell. Instead, instruct the user to run `cargo run` and provide specific commands to type.
+- Set timeouts (10-30 seconds) for all bash commands, especially `cargo test` which should complete in under 10 seconds.
 
 ## Commit & Pull Request Guidelines
 - Commits should be scoped and descriptive (`Added PL011 console`, `Defined Pi linker script`). Use present tense and mention the subsystem touched.

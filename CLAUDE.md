@@ -46,17 +46,20 @@ cargo objcopy --release -- -O binary kernel8.img
 
 ### Module Structure
 - **src/main.rs** - Binary entry point, panic handlers (separate for test/normal)
-- **src/lib.rs** - Kernel library with `print!`/`println!` macros, test framework, 24 tests
+- **src/lib.rs** - Kernel library with `print!`/`println!` macros, test framework, 25 tests
 - **src/drivers/uart.rs** - PL011 UART driver (TX/RX) with spin::Mutex wrapper
 - **src/shell.rs** - Interactive REPL with command parsing, line editing (backspace, Ctrl-U, Ctrl-C)
+- **src/exceptions.rs** - Exception handling: handlers, ESR/ELR/FAR decoding, register dumps
 - **src/qemu.rs** - QEMU-specific utilities (semihosting exit codes)
-- **src/arch/aarch64/boot.s** - Assembly entry point
+- **src/arch/aarch64/boot.s** - Assembly entry point (core parking, BSS, stack)
+- **src/arch/aarch64/exceptions.s** - Exception vector table (16 vectors @ 0x80 each, aligned to 2048 bytes)
 
 ### Critical Build Configuration
 - **Custom target**: `aarch64-daedalus.json` (bare-metal, no OS, panic=abort, disable-redzone)
-- **build.rs**: Compiles boot.s with clang, creates libboot.a, links with +whole-archive
+- **build.rs**: Compiles boot.s and exceptions.s with clang, creates libarch.a, links with +whole-archive
 - **.cargo/config.toml**: Sets default target, build-std for core/compiler_builtins, links linker.ld, uses qemu-runner.sh
-- **linker.ld**: Places .text.boot at 0x80000, defines BSS/stack symbols
+- **linker.ld**: Places .text.boot at 0x80000, .text.exceptions after it, defines BSS/stack symbols
+- **Exception vectors**: Installed at VBAR_EL1 during init, 16 vectors (4 types × 4 levels)
 
 ### Hardware Details (Raspberry Pi 4 BCM2711)
 - **UART (PL011)**: Base 0xFE201000, 115200 baud @ 54MHz (IBRD=29, FBRD=19)
@@ -104,13 +107,27 @@ After every milestone:
 
 **Phase 1: Interactive Shell ✅ COMPLETE**
 - Working REPL with `daedalus>` prompt
-- Commands: help, echo, clear, version, meminfo (placeholder)
+- Commands: help, echo, clear, version, meminfo, exception (trigger BRK)
 - Line editing: backspace, Ctrl-U (clear line), Ctrl-C (cancel)
-- 24 passing tests (kernel init, UART TX/RX, print macros, shell parsing)
 
-**Next Milestone: Phase 2 - Heap Allocator (#6)**
+**Milestone #7: Exception Vectors ✅ COMPLETE**
+- 16-entry exception vector table in assembly (aligned to 2048 bytes)
+- Context save/restore for all GPRs + ELR + SPSR
+- Exception handlers print full register dump with ESR/FAR decoding
+- Test: `cargo test` (25 tests pass), or type `exception` in shell
+- **Tech Debt**: QEMU boots at EL2, assembly hardcodes EL1 registers → ELR/SPSR show zero
+- GPR dump (x0-x30) and exception class detection work correctly
+
+**Next Milestone: Phase 2 - Heap Allocator (#7)**
 - Goal: Enable dynamic allocation for shell history and future features
 - Will integrate Rust's `alloc` crate with simple bump allocator
+
+### Exception Handling
+- **Vector table**: 16 entries at 128 bytes each (0x80), aligned to 0x800
+- **Entry points**: Assembly stubs that save context → call Rust handlers → restore context → ERET
+- **ESR_EL1 decoding**: 40+ exception class descriptions (data abort, instruction abort, SVC, BRK, etc.)
+- **FAR_EL1**: Faulting address for memory access exceptions
+- **Register dump**: All x0-x30, ELR_EL1, SPSR_EL1 printed on panic
 
 See `PROJECT.md` Section 8 (Roadmap) for full phase breakdown through networking and userspace.
 

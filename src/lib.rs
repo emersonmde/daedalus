@@ -5,6 +5,7 @@
 #![reexport_test_harness_main = "test_main"]
 
 pub mod drivers;
+pub mod exceptions;
 pub mod qemu;
 pub mod shell;
 
@@ -26,6 +27,7 @@ fn panic(info: &PanicInfo) -> ! {
 /// Sets up hardware devices and prepares the system for operation.
 pub fn init() {
     drivers::uart::WRITER.lock().init();
+    exceptions::init();
 }
 
 /// Print implementation that acquires the UART writer lock
@@ -238,6 +240,36 @@ fn test_uart_is_locked() {
     // Lock acquired successfully
     drop(_guard);
     // Lock released
+}
+
+// ============================================================================
+// Exception Handling Tests
+// ============================================================================
+
+#[test_case]
+fn test_exception_vectors_installed() {
+    // Test that exception vectors are installed (init() should have been called)
+    // This test just verifies the system doesn't crash with exceptions enabled
+    use core::arch::asm;
+
+    // Check current EL and read appropriate VBAR
+    let current_el: u64;
+    unsafe {
+        asm!("mrs {}, CurrentEL", out(reg) current_el, options(nomem, nostack));
+    }
+    let el = (current_el >> 2) & 0x3;
+
+    let vbar: u64;
+    unsafe {
+        if el == 2 {
+            asm!("mrs {}, vbar_el2", out(reg) vbar, options(nomem, nostack));
+        } else {
+            asm!("mrs {}, vbar_el1", out(reg) vbar, options(nomem, nostack));
+        }
+    }
+
+    // VBAR should be non-zero after init
+    assert_ne!(vbar, 0, "VBAR should be set after init");
 }
 
 // ============================================================================

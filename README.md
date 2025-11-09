@@ -105,13 +105,15 @@ daedalus-os/
 │   ├── main.rs              # Binary entry point and panic handlers
 │   ├── lib.rs               # Library root with print! macros and test framework
 │   ├── shell.rs             # Interactive shell (REPL with built-in commands)
+│   ├── exceptions.rs        # Exception handling (vectors, handlers, register dumps)
 │   ├── drivers/
 │   │   ├── mod.rs
 │   │   └── uart.rs          # PL011 UART driver with TX/RX support
 │   ├── qemu.rs              # QEMU utilities (semihosting, exit codes)
 │   └── arch/
 │       └── aarch64/
-│           └── boot.s       # Boot assembly (core parking, BSS, stack)
+│           ├── boot.s       # Boot assembly (core parking, BSS, stack)
+│           └── exceptions.s # Exception vector table (16 vectors, context save/restore)
 ├── linker.ld                # Linker script (entry at 0x80000)
 ├── aarch64-daedalus.json    # Custom bare-metal AArch64 target spec
 ├── build.rs                 # Compiles assembly and links it
@@ -126,8 +128,9 @@ The project follows a modular structure inspired by Phil Opp's blog_os and tradi
 - **lib.rs** - Testable kernel library with public API
 - **main.rs** - Minimal binary entry point
 - **shell.rs** - Interactive shell with command parsing and built-in commands
+- **exceptions.rs** - Exception handling with register dumps and ESR decoding
 - **drivers/** - Hardware device drivers (UART with polling-based I/O)
-- **arch/** - Architecture-specific code (boot stub, low-level init)
+- **arch/** - Architecture-specific code (boot stub, exception vectors, low-level init)
 - **qemu.rs** - Emulator-specific utilities (not for real hardware)
 
 ## Documentation

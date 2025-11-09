@@ -92,6 +92,7 @@ fn execute_command(cmd: Command) {
             println!("  clear     - Clear the screen");
             println!("  version   - Show kernel version");
             println!("  meminfo   - Display memory information (TODO)");
+            println!("  exception - Trigger a breakpoint exception (for testing)");
         }
 
         "echo" => {
@@ -112,6 +113,14 @@ fn execute_command(cmd: Command) {
             println!("Memory information:");
             println!("  Heap: Not yet implemented");
             println!("  TODO: Implement heap allocator to track memory usage");
+        }
+
+        "exception" => {
+            println!("Triggering breakpoint exception...");
+            // Trigger a BRK instruction which will cause a synchronous exception
+            unsafe {
+                core::arch::asm!("brk #0", options(nostack));
+            }
         }
 
         _ => {
