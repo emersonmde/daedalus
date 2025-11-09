@@ -26,7 +26,7 @@ cargo objcopy --release -- -O binary kernel8.img
 
 ### Test-Specific Commands
 - Tests use `#[test_case]` attribute (custom test framework, not std)
-- Tests run in QEMU via `qemu-runner.sh` with ARM semihosting for exit
+- Tests run in QEMU via `scripts/qemu-runner.sh` with ARM semihosting for exit
 - All tests must work in bare-metal `no_std` environment (no heap unless allocator implemented)
 
 ## Architecture Overview
@@ -57,7 +57,7 @@ cargo objcopy --release -- -O binary kernel8.img
 ### Critical Build Configuration
 - **Custom target**: `aarch64-daedalus.json` (bare-metal, no OS, panic=abort, disable-redzone)
 - **build.rs**: Compiles boot.s and exceptions.s with clang, creates libarch.a, links with +whole-archive
-- **.cargo/config.toml**: Sets default target, build-std for core/compiler_builtins, links linker.ld, uses qemu-runner.sh
+- **.cargo/config.toml**: Sets default target, build-std for core/compiler_builtins, links linker.ld, uses scripts/qemu-runner.sh
 - **linker.ld**: Places .text.boot at 0x80000, .text.exceptions after it, defines BSS/stack symbols
 - **Exception vectors**: Installed at VBAR_EL1 during init, 16 vectors (4 types × 4 levels)
 

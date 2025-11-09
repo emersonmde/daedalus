@@ -168,7 +168,7 @@ For real Raspberry Pi hardware, you need to convert the ELF to a raw binary:
 
 7. Power on the Pi
 
-Note: The `objcopy` step is only needed for real hardware. QEMU loads the ELF directly via the `qemu-runner.sh` script.
+Note: The `objcopy` step is only needed for real hardware. QEMU loads the ELF directly via the `scripts/qemu-runner.sh` script.
 
 ## Project Structure
 
@@ -190,7 +190,8 @@ daedalus-os/
 ├── linker.ld                # Linker script (entry at 0x80000)
 ├── aarch64-daedalus.json    # Custom bare-metal AArch64 target spec
 ├── build.rs                 # Compiles assembly and links it
-├── qemu-runner.sh           # Converts ELF to binary and launches QEMU
+├── scripts/
+│   └── qemu-runner.sh       # Converts ELF to binary and launches QEMU
 └── .cargo/config.toml       # Target, linker flags, test runner
 ```
 

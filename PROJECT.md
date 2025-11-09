@@ -114,7 +114,7 @@ Dependencies: `llvm-tools` (rustup component), `rust-src` (rustup component), `c
 
 - **Test Framework**: Custom test framework using Rust's `custom_test_frameworks` feature
 - **Test Execution**: `cargo test` builds test binary and runs it in QEMU
-- **Test Runner**: `qemu-runner.sh` converts ELF to binary and launches QEMU with semihosting
+- **Test Runner**: `scripts/qemu-runner.sh` converts ELF to binary and launches QEMU with semihosting
 - **Exit Mechanism**: ARM semihosting (HLT #0xF000) with proper parameter block for ADP_Stopped_ApplicationExit
 - **Exit Codes**: Status 0 on success, status 1 on failure (properly communicated to host)
 - **Coverage**: 25 tests covering kernel init, UART driver, print macros, formatting, shell parsing, exception vectors, edge cases

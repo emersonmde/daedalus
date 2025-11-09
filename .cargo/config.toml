@@ -9,4 +9,4 @@ target = "aarch64-daedalus.json"
 rustflags = [
     "-C", "link-arg=-Tlinker.ld",
 ]
-runner = "./qemu-runner.sh"
+runner = "./scripts/qemu-runner.sh"
