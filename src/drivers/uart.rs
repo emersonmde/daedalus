@@ -98,6 +98,22 @@ impl UartWriter {
             self.write_byte(byte);
         }
     }
+
+    /// Read a single byte from the UART (blocking)
+    ///
+    /// Polls the receive FIFO until a character is available.
+    /// Returns the received byte.
+    pub fn read_byte(&mut self) -> u8 {
+        if !self.initialized {
+            self.init();
+        }
+
+        // Wait until receive FIFO is not empty (FR bit 4 = RXFE)
+        while (self.registers.fr.read() & (1 << 4)) != 0 {}
+
+        // Read and return the byte (only lower 8 bits are data)
+        (self.registers.dr.read() & 0xFF) as u8
+    }
 }
 
 impl fmt::Write for UartWriter {

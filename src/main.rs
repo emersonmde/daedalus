@@ -20,9 +20,10 @@ pub extern "C" fn _start_rust() -> ! {
 
     #[cfg(not(test))]
     {
-        println!("Welcome to Daedalus OS!");
+        daedalus::shell::run();
     }
 
+    #[cfg(test)]
     loop {}
 }
 

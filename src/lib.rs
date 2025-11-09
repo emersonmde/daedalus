@@ -6,6 +6,7 @@
 
 pub mod drivers;
 pub mod qemu;
+pub mod shell;
 
 use core::fmt::{self, Write};
 
@@ -237,6 +238,55 @@ fn test_uart_is_locked() {
     // Lock acquired successfully
     drop(_guard);
     // Lock released
+}
+
+// ============================================================================
+// Shell Command Parser Tests
+// ============================================================================
+
+#[test_case]
+fn test_shell_parse_simple_command() {
+    use shell::Command;
+
+    let cmd = Command::parse("help").unwrap();
+    assert_eq!(cmd.name, "help");
+    assert_eq!(cmd.args, "");
+}
+
+#[test_case]
+fn test_shell_parse_command_with_args() {
+    use shell::Command;
+
+    let cmd = Command::parse("echo hello world").unwrap();
+    assert_eq!(cmd.name, "echo");
+    assert_eq!(cmd.args, "hello world");
+}
+
+#[test_case]
+fn test_shell_parse_whitespace_trimming() {
+    use shell::Command;
+
+    let cmd = Command::parse("  version  ").unwrap();
+    assert_eq!(cmd.name, "version");
+    assert_eq!(cmd.args, "");
+}
+
+#[test_case]
+fn test_shell_parse_empty_line() {
+    use shell::Command;
+
+    assert!(Command::parse("").is_none());
+    assert!(Command::parse("   ").is_none());
+}
+
+#[test_case]
+fn test_shell_parse_multiple_spaces() {
+    use shell::Command;
+
+    // Args preserve all spacing after first space (including leading spaces)
+    let cmd = Command::parse("echo    test   with   spaces").unwrap();
+    assert_eq!(cmd.name, "echo");
+    assert_eq!(cmd.args, "   test   with   spaces");
 }
 
 #[cfg(test)]

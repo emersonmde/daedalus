@@ -1,10 +1,10 @@
-# DaedalusOS Architecture — Raspberry Pi 4
+# DaedalusOS Project Guide
 
-> Status: design in progress (updated 2025-11-08)
+> Status: Active development (updated 2025-11-09)
 > Target hardware: Raspberry Pi 4 Model B (BCM2711, Cortex-A72)
-> Scope: single-board, single-target hobby kernel in Rust 2024
+> Scope: Single-board, single-target hobby OS kernel in Rust 2024
 
-This document is the single source of truth for how DaedalusOS boots and runs on Raspberry Pi 4. We borrow ideas from Philipp Oppermann's tutorial where they make sense, but we are no longer trying to mirror his code 1:1 or to keep an x86 build alive. All architectural decisions, addresses, and testing expectations live here so future contributors can ship features without chasing tribal knowledge.
+This document is the comprehensive guide to DaedalusOS: project goals, architecture, hardware details, roadmap, and development practices. We borrow ideas from Philipp Oppermann's tutorial where they make sense, but we are no longer trying to mirror his code 1:1 or to keep an x86 build alive. All architectural decisions, memory addresses, testing expectations, and future plans live here.
 
 ---
 
@@ -117,7 +117,7 @@ Dependencies: `llvm-tools` (rustup component), `rust-src` (rustup component), `c
 - **Test Runner**: `qemu-runner.sh` converts ELF to binary and launches QEMU with semihosting
 - **Exit Mechanism**: ARM semihosting (HLT #0xF000) with proper parameter block for ADP_Stopped_ApplicationExit
 - **Exit Codes**: Status 0 on success, status 1 on failure (properly communicated to host)
-- **Coverage**: 19 tests covering kernel init, UART driver, print macros, formatting, edge cases
+- **Coverage**: 24 tests covering kernel init, UART driver, print macros, formatting, shell parsing, edge cases
 
 ### Running Tests
 
@@ -150,31 +150,24 @@ fn test_something() {
 
 1. **Boot & Console** - AArch64 assembly entry, core parking, BSS zeroing, stack setup, PL011 UART driver with TX
 2. **Testing Infrastructure** - Custom test framework with QEMU integration, 19 comprehensive tests, proper exit codes
+3. **UART Input** - Polling-based RX implementation, character echo, backspace/line editing support (Ctrl-U, Ctrl-C)
+4. **Command Parser** - Line buffering, command/argument splitting, ASCII input handling
+5. **Shell Loop** - Interactive REPL with prompt, built-in commands (help, echo, clear, version, meminfo), error handling
 
-### Phase 1: Interactive Shell 🎯
+### Phase 1: Interactive Shell ✅ COMPLETE
 
 **Goal**: Build a usable REPL that runs in QEMU, foundation for all future features
 
-3. **UART Input**
-   - Read characters from serial console (currently only TX, need RX)
-   - Echo typed characters back to user
-   - Handle backspace and basic line editing
-   - Test: Type and see echo, backspace works
-   - Deliverable: Can type into console and see responses
+All Phase 1 milestones completed! The kernel now boots into an interactive shell with:
+- Polling-based UART input (read_byte) with proper flag checking (FR bit 4)
+- Line editing: backspace, Ctrl-U (clear line), Ctrl-C (cancel)
+- Command parser with argument splitting
+- Built-in commands: help, echo, clear (ANSI escape), version, meminfo (placeholder)
+- Full REPL loop with `daedalus>` prompt
 
-4. **Command Parser**
-   - Parse input line into command + arguments
-   - Implement built-in commands: `help`, `echo`, `clear`, `version`, `meminfo`
-   - Command dispatch mechanism
-   - Test: Type `echo hello world` and see output
-   - Deliverable: Interactive command execution
+**Testing**: Run `cargo run` and interact with shell. All 19 existing tests still pass.
 
-5. **Shell Loop**
-   - Prompt → Read → Parse → Execute → Repeat
-   - Error handling for unknown commands
-   - Optional: Command history (up/down arrows)
-   - Test: Full interactive session in QEMU
-   - Deliverable: Working REPL
+**Future Enhancement**: Add command history and arrow key support when heap allocator is available (Phase 2)
 
 ### Phase 2: Memory & Interrupts 🧠
 
@@ -313,7 +306,7 @@ As each driver is implemented, document:
 
 ### Current Focus
 
-**Next Milestone**: UART Input (#3) - First step toward interactive shell
+**Next Milestone**: Heap Allocator (#6) - Enable dynamic allocation for shell history and future features
 
 ---
 

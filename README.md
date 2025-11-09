@@ -32,10 +32,15 @@ cargo run
 
 Expected output:
 ```
-Welcome to Daedalus (Pi)!
+Welcome to DaedalusOS!
+Type 'help' for available commands.
+
+daedalus>
 ```
 
-Press `Ctrl+C` to exit QEMU.
+You can now interact with the shell! Try typing `help` to see available commands.
+
+Press `Ctrl+A` then `X` to exit QEMU.
 
 ### Manual Build
 
@@ -99,9 +104,10 @@ daedalus-os/
 ├── src/
 │   ├── main.rs              # Binary entry point and panic handlers
 │   ├── lib.rs               # Library root with print! macros and test framework
+│   ├── shell.rs             # Interactive shell (REPL with built-in commands)
 │   ├── drivers/
 │   │   ├── mod.rs
-│   │   └── uart.rs          # PL011 UART driver (hardware-specific)
+│   │   └── uart.rs          # PL011 UART driver with TX/RX support
 │   ├── qemu.rs              # QEMU utilities (semihosting, exit codes)
 │   └── arch/
 │       └── aarch64/
@@ -119,11 +125,13 @@ The project follows a modular structure inspired by Phil Opp's blog_os and tradi
 
 - **lib.rs** - Testable kernel library with public API
 - **main.rs** - Minimal binary entry point
-- **drivers/** - Hardware device drivers (currently just UART)
+- **shell.rs** - Interactive shell with command parsing and built-in commands
+- **drivers/** - Hardware device drivers (UART with polling-based I/O)
 - **arch/** - Architecture-specific code (boot stub, low-level init)
 - **qemu.rs** - Emulator-specific utilities (not for real hardware)
 
 ## Documentation
 
-See `ARCHITECTURE.md` for hardware details, memory layout, and design decisions.
-See `AGENTS.md` for development workflows and guidelines.
+- **PROJECT.md** - Complete project guide: goals, architecture, hardware details, roadmap, and milestones
+- **AGENTS.md** - Development workflows, coding guidelines, and contribution practices
+- **README.md** (this file) - Quick start guide and basic project structure
