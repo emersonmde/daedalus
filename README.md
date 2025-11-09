@@ -4,20 +4,93 @@ DaedalusOS is my personal playground for learning low-level Rust by bringing up 
 
 ## Prerequisites
 
-Install the required Rust components:
+### 1. Install Rust (nightly)
+
+DaedalusOS requires Rust nightly for custom target and bare-metal features.
 
 ```bash
-rustup component add llvm-tools
+# Install rustup (if not already installed)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Install nightly toolchain
+rustup toolchain install nightly
+
+# The project uses rust-toolchain file to automatically select nightly
+```
+
+### 2. Install Required Rust Components
+
+```bash
+# Add llvm-tools for objcopy
+rustup component add llvm-tools --toolchain nightly
+
+# Add rust-src for building core library
+rustup component add rust-src --toolchain nightly
+
+# Install cargo-binutils for objcopy command
 cargo install cargo-binutils
 ```
 
-Ensure you have QEMU for AArch64 testing:
-```bash
-# On macOS:
-brew install qemu
+### 3. Install QEMU for AArch64
 
-# On Linux:
+**macOS (using Homebrew):**
+```bash
+brew install qemu
+```
+
+**Linux (Debian/Ubuntu):**
+```bash
+sudo apt update
 sudo apt install qemu-system-aarch64
+```
+
+**Linux (Fedora/RHEL):**
+```bash
+sudo dnf install qemu-system-aarch64
+```
+
+**Linux (Arch):**
+```bash
+sudo pacman -S qemu-system-aarch64
+```
+
+### 4. Install Clang (for assembly compilation)
+
+The build process uses Clang to assemble AArch64 assembly files.
+
+**macOS:**
+```bash
+# Option 1: Install via Homebrew (recommended)
+brew install llvm
+
+# Option 2: Use Xcode Command Line Tools (may be older version)
+xcode-select --install
+```
+
+**Linux (Debian/Ubuntu):**
+```bash
+sudo apt install clang
+```
+
+**Linux (Fedora/RHEL):**
+```bash
+sudo dnf install clang
+```
+
+**Linux (Arch):**
+```bash
+sudo pacman -S clang
+```
+
+### 5. Verify Installation
+
+Check that all tools are available:
+```bash
+rustc --version          # Should show nightly
+cargo --version
+qemu-system-aarch64 --version
+clang --version
+cargo objcopy --version
 ```
 
 ## Building and Running
