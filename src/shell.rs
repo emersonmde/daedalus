@@ -148,10 +148,10 @@ pub fn run() -> ! {
         }
 
         // Convert buffer to str (safe because we only accept ASCII in read_line)
-        if let Ok(line) = core::str::from_utf8(&line_buffer[..len]) {
-            if let Some(cmd) = Command::parse(line) {
-                execute_command(cmd);
-            }
+        if let Ok(line) = core::str::from_utf8(&line_buffer[..len])
+            && let Some(cmd) = Command::parse(line)
+        {
+            execute_command(cmd);
         }
     }
 }

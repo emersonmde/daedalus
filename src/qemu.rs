@@ -18,12 +18,12 @@ pub enum ExitCode {
 pub fn exit(exit_code: ExitCode) -> ! {
     #[repr(C)]
     struct ExitBlock {
-        reason: u64,  // 0x20026 = ADP_Stopped_ApplicationExit
-        status: u64,  // Exit status code
+        reason: u64, // 0x20026 = ADP_Stopped_ApplicationExit
+        status: u64, // Exit status code
     }
 
     let block = ExitBlock {
-        reason: 0x20026,  // ADP_Stopped_ApplicationExit
+        reason: 0x20026, // ADP_Stopped_ApplicationExit
         status: exit_code as u64,
     };
 

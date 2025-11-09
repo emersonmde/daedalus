@@ -1,0 +1,102 @@
+name: DaedalusOS CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src, llvm-tools
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install QEMU
+        run: sudo apt-get update && sudo apt-get install -y qemu-system-aarch64 clang
+
+      - name: Install cargo-binutils
+        run: cargo install cargo-binutils --locked
+
+      - name: Build kernel
+        run: cargo build --verbose
+
+      - name: Run tests
+        run: cargo test --verbose
+
+  fmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt -- --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: clippy, rust-src, llvm-tools
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang
+
+      - name: Lint with Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+  build-release:
+    name: Build Release
+    runs-on: ubuntu-latest
+    needs: [ test, fmt, clippy ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src, llvm-tools
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang
+
+      - name: Install cargo-binutils
+        run: cargo install cargo-binutils --locked
+
+      - name: Build release kernel
+        run: cargo build --release --verbose
+
+      - name: Generate kernel8.img
+        run: cargo objcopy --release -- -O binary kernel8.img
+
+      - name: Upload kernel8.img artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel8.img
+          path: kernel8.img

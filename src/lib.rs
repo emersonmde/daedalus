@@ -77,15 +77,6 @@ pub fn test_runner(tests: &[&dyn Testable]) {
 }
 
 // ============================================================================
-// Basic Sanity Tests
-// ============================================================================
-
-#[test_case]
-fn trivial_assertion() {
-    assert_eq!(1, 1);
-}
-
-// ============================================================================
 // Kernel Initialization Tests
 // ============================================================================
 
@@ -138,7 +129,9 @@ fn test_println_special_chars() {
 
 #[test_case]
 fn test_println_long_string() {
-    println!("This is a longer string to test UART buffering and ensure that we can handle strings that span multiple characters without issues");
+    println!(
+        "This is a longer string to test UART buffering and ensure that we can handle strings that span multiple characters without issues"
+    );
 }
 
 #[test_case]
@@ -326,5 +319,10 @@ fn test_shell_parse_multiple_spaces() {
 pub extern "C" fn _start_rust() -> ! {
     init();
     test_main();
-    loop {}
+    loop {
+        // Wait for interrupt to save power
+        unsafe {
+            core::arch::asm!("wfi", options(nomem, nostack));
+        }
+    }
 }

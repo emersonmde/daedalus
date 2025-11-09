@@ -13,24 +13,30 @@ lazy_static! {
 /// PL011 UART register offsets
 #[repr(C)]
 struct Pl011Registers {
-    dr: Volatile<u32>,          // 0x00 - Data Register
+    dr: Volatile<u32>, // 0x00 - Data Register
     _rsv0: [u32; 5],
-    fr: Volatile<u32>,          // 0x18 - Flag Register
+    fr: Volatile<u32>, // 0x18 - Flag Register
     _rsv1: [u32; 2],
-    ibrd: Volatile<u32>,        // 0x24 - Integer Baud Rate Divisor
-    fbrd: Volatile<u32>,        // 0x28 - Fractional Baud Rate Divisor
-    lcrh: Volatile<u32>,        // 0x2C - Line Control Register
-    cr: Volatile<u32>,          // 0x30 - Control Register
+    ibrd: Volatile<u32>, // 0x24 - Integer Baud Rate Divisor
+    fbrd: Volatile<u32>, // 0x28 - Fractional Baud Rate Divisor
+    lcrh: Volatile<u32>, // 0x2C - Line Control Register
+    cr: Volatile<u32>,   // 0x30 - Control Register
     _rsv2: [u32; 1],
-    imsc: Volatile<u32>,        // 0x38 - Interrupt Mask Set/Clear
+    imsc: Volatile<u32>, // 0x38 - Interrupt Mask Set/Clear
     _rsv3: [u32; 2],
-    icr: Volatile<u32>,         // 0x44 - Interrupt Clear Register
+    icr: Volatile<u32>, // 0x44 - Interrupt Clear Register
 }
 
 /// UART writer for serial console output
 pub struct UartWriter {
     registers: &'static mut Pl011Registers,
     initialized: bool,
+}
+
+impl Default for UartWriter {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl UartWriter {

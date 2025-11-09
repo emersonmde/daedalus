@@ -10,14 +10,14 @@ fn main() {
     if target.starts_with("aarch64") {
         // Assemble boot.s
         let status = Command::new("clang")
-            .args(&[
+            .args([
                 "-target",
                 "aarch64-none-elf",
                 "-c",
                 "src/arch/aarch64/boot.s",
                 "-o",
             ])
-            .arg(&out_dir.join("boot.o"))
+            .arg(out_dir.join("boot.o"))
             .status()
             .expect("Failed to assemble boot.s");
 
@@ -27,14 +27,14 @@ fn main() {
 
         // Assemble exceptions.s
         let status = Command::new("clang")
-            .args(&[
+            .args([
                 "-target",
                 "aarch64-none-elf",
                 "-c",
                 "src/arch/aarch64/exceptions.s",
                 "-o",
             ])
-            .arg(&out_dir.join("exceptions.o"))
+            .arg(out_dir.join("exceptions.o"))
             .status()
             .expect("Failed to assemble exceptions.s");
 
@@ -44,7 +44,7 @@ fn main() {
 
         // Create libarch.a from boot.o and exceptions.o
         let status = Command::new("ar")
-            .args(&["crs"])
+            .args(["crs"])
             .arg(out_dir.join("libarch.a"))
             .arg(out_dir.join("boot.o"))
             .arg(out_dir.join("exceptions.o"))

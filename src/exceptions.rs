@@ -5,7 +5,6 @@
 /// - IRQ (normal interrupts)
 /// - FIQ (fast interrupts)
 /// - SError (system errors)
-
 use crate::println;
 use core::arch::asm;
 
@@ -13,9 +12,9 @@ use core::arch::asm;
 /// Layout must match SAVE_CONTEXT macro in exceptions.s
 #[repr(C)]
 pub struct ExceptionContext {
-    pub elr_el1: u64,    // Exception Link Register (return address)
-    pub x30: u64,        // Link Register
-    pub spsr_el1: u64,   // Saved Program Status Register
+    pub elr_el1: u64,  // Exception Link Register (return address)
+    pub x30: u64,      // Link Register
+    pub spsr_el1: u64, // Saved Program Status Register
     pub x28: u64,
     pub x29: u64,
     pub x26: u64,
@@ -73,8 +72,8 @@ impl ExceptionType {
 /// Exception Syndrome Register (ESR_ELx) fields
 #[derive(Debug)]
 pub struct ExceptionSyndrome {
-    pub ec: u32,    // Exception Class
-    pub iss: u32,   // Instruction Specific Syndrome
+    pub ec: u32,  // Exception Class
+    pub iss: u32, // Instruction Specific Syndrome
 }
 
 impl ExceptionSyndrome {
@@ -170,7 +169,11 @@ fn print_exception_context(ctx: &ExceptionContext, exc_type: ExceptionType, sour
     println!("\n!!! EXCEPTION !!!");
     println!("Source: {}", source);
     println!("Type: {:?}", exc_type);
-    println!("Exception Class: 0x{:02x} ({})", esr.ec, esr.exception_class_str());
+    println!(
+        "Exception Class: 0x{:02x} ({})",
+        esr.ec,
+        esr.exception_class_str()
+    );
     println!("ISS: 0x{:07x}", esr.iss);
     println!("ELR (return addr): 0x{:016x}", ctx.elr_el1);
     println!("FAR (fault addr):  0x{:016x}", far);
