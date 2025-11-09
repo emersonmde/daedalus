@@ -51,12 +51,52 @@ pub fn test_panic_handler(info: &PanicInfo) -> ! {
     qemu::exit(qemu::ExitCode::Failed);
 }
 
+/// Enable IRQs by unmasking the I bit in DAIF register.
+///
+/// DAIF register controls exception masking:
+/// - D: Debug exceptions
+/// - A: SError (async abort)
+/// - I: IRQ  ← We unmask this
+/// - F: FIQ
+///
+/// Reference: ARM ARM Section D1.19.1
+fn enable_irqs() {
+    // SAFETY: Unmasking IRQs is safe because:
+    // 1. The GIC has been initialized and configured
+    // 2. Exception vectors are installed and ready to handle IRQs
+    // 3. The UART interrupt handler is in place
+    // 4. MSR instruction modifies only the DAIF register (no memory/stack effects)
+    // 5. This enables interrupt-driven I/O which is the intended behavior
+    unsafe {
+        core::arch::asm!(
+            "msr daifclr, #2", // Clear I bit (bit 1): 0b0010 = IRQ unmask
+            options(nomem, nostack)
+        );
+    }
+    println!("IRQs enabled");
+}
+
 /// Initialize the kernel
 ///
 /// Sets up hardware devices and prepares the system for operation.
 pub fn init() {
     drivers::uart::WRITER.lock().init();
     exceptions::init();
+
+    // Initialize GIC (interrupt controller)
+    {
+        let mut gic = drivers::gic::GIC.lock();
+        gic.init();
+
+        // Enable UART0 interrupt in GIC
+        gic.enable_interrupt(drivers::gic::irq::UART0);
+    }
+
+    // Enable UART RX interrupts
+    drivers::uart::WRITER.lock().enable_rx_interrupt();
+
+    // Enable IRQs at CPU level
+    enable_irqs();
 
     // Initialize heap allocator
     // SAFETY: This code is safe because:
@@ -384,6 +424,34 @@ fn test_shell_parse_whitespace_trimming() {
     let cmd = Command::parse("  version  ").unwrap();
     assert_eq!(cmd.name, "version");
     assert_eq!(cmd.args, "");
+}
+
+#[test_case]
+fn test_debug_command_exists() {
+    use shell::Command;
+
+    // Verify debug command is recognized (ensures it's not accidentally removed)
+    let cmd = Command::parse("debug").unwrap();
+    assert_eq!(cmd.name, "debug");
+    assert_eq!(cmd.args, "");
+}
+
+#[test_case]
+fn test_exit_command_aliases() {
+    use shell::Command;
+
+    // Verify exit command and its aliases are recognized
+    let exit_cmd = Command::parse("exit").unwrap();
+    assert_eq!(exit_cmd.name, "exit");
+
+    let shutdown_cmd = Command::parse("shutdown").unwrap();
+    assert_eq!(shutdown_cmd.name, "shutdown");
+
+    let halt_cmd = Command::parse("halt").unwrap();
+    assert_eq!(halt_cmd.name, "halt");
+
+    // Note: We can't actually test execution of exit since it calls
+    // qemu::exit() which terminates the test runner. Just verify parsing.
 }
 
 #[test_case]

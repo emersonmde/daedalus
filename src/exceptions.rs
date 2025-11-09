@@ -248,7 +248,16 @@ extern "C" fn exception_handler_el1_sp0(ctx: &ExceptionContext, exc_type: u64) {
 /// Handle exceptions from current EL using SPx.
 #[unsafe(no_mangle)]
 extern "C" fn exception_handler_el1_spx(ctx: &ExceptionContext, exc_type: u64) {
-    print_exception_context(ctx, ExceptionType::from_u64(exc_type), "Current EL (SPx)");
+    let exc_type = ExceptionType::from_u64(exc_type);
+
+    // Handle IRQs separately
+    if matches!(exc_type, ExceptionType::Irq) {
+        handle_irq();
+        return;
+    }
+
+    // All other exceptions: print context and panic
+    print_exception_context(ctx, exc_type, "Current EL (SPx)");
     panic!("Unhandled exception");
 }
 
@@ -264,6 +273,38 @@ extern "C" fn exception_handler_lower_aa64(ctx: &ExceptionContext, exc_type: u64
 extern "C" fn exception_handler_lower_aa32(ctx: &ExceptionContext, exc_type: u64) {
     print_exception_context(ctx, ExceptionType::from_u64(exc_type), "Lower EL (AArch32)");
     panic!("Unhandled exception");
+}
+
+//-----------------------------------------------------------------------------
+// IRQ handling
+//-----------------------------------------------------------------------------
+
+/// Handle an IRQ by reading the interrupt ID from the GIC and routing to
+/// the appropriate peripheral handler.
+fn handle_irq() {
+    // Acknowledge the interrupt and get its ID
+    let gic = crate::drivers::gic::GIC.lock();
+    let int_id = gic.acknowledge_interrupt();
+
+    // Spurious interrupt check
+    if int_id == 1023 {
+        println!("Spurious interrupt");
+        return;
+    }
+
+    // Route to appropriate handler based on interrupt ID
+    match int_id {
+        crate::drivers::gic::irq::UART0 => {
+            // UART0 interrupt
+            crate::drivers::uart::handle_interrupt();
+        }
+        _ => {
+            println!("Unhandled interrupt ID: {}", int_id);
+        }
+    }
+
+    // Signal end of interrupt to GIC
+    gic.end_of_interrupt(int_id);
 }
 
 //-----------------------------------------------------------------------------

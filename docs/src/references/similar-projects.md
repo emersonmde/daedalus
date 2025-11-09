@@ -9,14 +9,14 @@ Learning resources and similar bare-metal Rust projects.
 
 **Target**: x86_64 architecture (different from our AArch64)
 
-**What to borrow:**
-- **Testing framework** - Custom test harness pattern (we adapted this)
+**Useful for reference:**
+- **Testing framework** - Custom test harness pattern
 - **Print macros** - `print!`/`println!` implementation using `fmt::Write` trait
 - **Panic handling** - Separate panic handlers for test vs normal mode
-- **VGA text mode concepts** - Adapted for our UART-based console
-- **Memory management** - Heap allocators, paging (future milestones)
+- **VGA text mode concepts** - Console output patterns
+- **Memory management** - Heap allocators, paging concepts
 
-**What to skip:**
+**Less relevant:**
 - x86-specific code (bootloader, interrupts, APIC)
 - VGA hardware specifics
 - x86 page table format
@@ -28,19 +28,19 @@ Learning resources and similar bare-metal Rust projects.
 
 **Target**: Raspberry Pi 3 and 4 (AArch64, same as us!)
 
-**What to borrow:**
-- **Pi-specific initialization** - GPIO, UART, timer setup
-- **AArch64 assembly** - Boot sequence, exception handling
-- **Linker scripts** - Section placement for Pi
-- **Driver patterns** - MMIO register access
-- **Testing approaches** - QEMU-based integration tests
+**Useful for reference:**
+- **Pi-specific initialization** - GPIO, UART, timer setup examples
+- **AArch64 assembly** - Boot sequence, exception handling patterns
+- **Linker scripts** - Section placement approaches for Pi
+- **Driver patterns** - MMIO register access techniques
+- **Testing approaches** - QEMU-based integration test examples
 
 **Differences from DaedalusOS:**
 - Uses Ruby-based build tooling (we use Cargo directly)
 - Structured as progressive tutorials (we're focused on single working kernel)
 - Supports multiple Pi models (we're Pi 4 only)
 
-**Best use**: Reference for Pi 4 hardware initialization and driver implementation.
+**Best use**: Reference implementation for Pi 4 hardware initialization.
 
 ## Embedded Rust Resources
 
@@ -78,6 +78,48 @@ Learning resources and similar bare-metal Rust projects.
 - Cache management
 - SMP (multi-core) bringup
 
+## Raspberry Pi 4 Bare Metal Projects
+
+### rpi4-bare-metal by rhythm16
+[GitHub: rhythm16/rpi4-bare-metal](https://github.com/rhythm16/rpi4-bare-metal)
+
+**Target**: Raspberry Pi 4B (BCM2711, same as us!)
+
+**Useful for reference:**
+- **GIC-400 implementation** - Interrupt controller setup and handling examples
+- **PL011 UART interrupts** - Interrupt-driven I/O patterns
+- **Mini-UART driver** - Alternative UART implementation approach
+- **BCM2711-specific initialization** - Hardware bringup sequence examples
+
+**Best use**: Reference implementation for GIC-400 interrupt handling on Pi 4.
+
+### rpi4os.com Tutorial Series
+[Writing a "bare metal" OS for Raspberry Pi 4](https://www.rpi4os.com/)
+
+**Target**: Raspberry Pi 4B
+
+**Topics covered:**
+- System timer interrupts
+- Exception handling at EL1
+- Interrupt controller setup
+- Bare metal C programming patterns
+
+**Best use**: Step-by-step tutorial for Pi 4 interrupt concepts.
+
+### Valvers Bare Metal Programming
+[Bare Metal Programming in C](https://www.valvers.com/open-software/raspberry-pi/bare-metal-programming-in-c-part-4/)
+
+**Target**: Raspberry Pi series (includes Pi 4)
+
+**Useful sections:**
+- **Part 4: Interrupts** - GIC-400 explanation and setup
+- Interrupt controller architecture
+- Bare metal C patterns for Pi
+
+**Best use**: Understanding interrupt flow and GIC-400 architecture.
+
+**Important note**: All Pi 4 bare metal projects require `enable_gic=1` in config.txt!
+
 ## Project Comparisons
 
 ### When to Consult Each Resource
@@ -85,19 +127,22 @@ Learning resources and similar bare-metal Rust projects.
 | Need | Resource | Why |
 |------|----------|-----|
 | Rust OS patterns | Blog OS | Architecture, testing, idioms |
-| Pi 4 hardware | Rust Pi OS Tutorials | Direct hardware examples |
-| ARM assembly | Rust Pi OS Tutorials | AArch64 boot/exception code |
+| Pi 4 hardware | Rust Pi OS Tutorials, rpi4-bare-metal | Hardware initialization examples |
+| ARM assembly | Rust Pi OS Tutorials | AArch64 boot/exception code patterns |
 | Embedded Rust | Embedded Rust Book | `#![no_std]` patterns |
 | OS concepts | OSDev Wiki | General OS knowledge |
 | ARM architecture | OSDev ARM | ARM-specific OS dev |
+| GIC-400 interrupts | rpi4-bare-metal, Valvers | Interrupt handling examples |
 
-### Code Porting Strategy
+### Using Reference Implementations
 
-1. **Start with concept** from Blog OS or OSDev
-2. **Check ARM specifics** in OSDev ARM or ARM docs
-3. **Find Pi 4 implementation** in Rust Pi OS Tutorials
-4. **Adapt to DaedalusOS** constraints (Pi 4 only, our structure)
-5. **Document differences** in code comments and ADRs
+1. **Understand the concept** from tutorials/docs
+2. **Review similar implementations** in reference projects
+3. **Study hardware specifications** from official datasheets
+4. **Implement independently** for DaedalusOS constraints
+5. **Document our approach** in code comments and docs
+
+**Note**: These projects are reference implementations to learn from, not code to directly copy. Each has different design goals and constraints.
 
 ## Related Documentation
 

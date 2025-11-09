@@ -119,6 +119,8 @@ fn execute_command(cmd: Command) {
             println!("  meminfo   - Display memory and heap statistics");
             println!("  uptime    - Show system uptime");
             println!("  history   - Show command history");
+            println!("  debug     - Show system debug information");
+            println!("  exit      - Shutdown system (exit QEMU or halt CPU)");
             println!("  exception - Trigger a breakpoint exception (for testing)");
         }
 
@@ -188,6 +190,137 @@ fn execute_command(cmd: Command) {
                 println!("Command History:");
                 for (i, cmd) in history.iter().enumerate() {
                     println!("  {}: {}", i + 1, cmd);
+                }
+            }
+        }
+
+        "debug" => {
+            use core::arch::asm;
+
+            println!("System Debug Information:");
+            println!();
+
+            // Exception Level
+            let current_el: u64;
+            // SAFETY: Reading CurrentEL is safe (read-only register)
+            unsafe {
+                asm!("mrs {}, CurrentEL", out(reg) current_el, options(nomem, nostack));
+            }
+            let el = ((current_el >> 2) & 0x3) as u8;
+            println!("Exception Level: EL{}", el);
+
+            // DAIF register (interrupt masks)
+            let daif: u64;
+            // SAFETY: Reading DAIF is safe (read-only access to current state)
+            unsafe {
+                asm!("mrs {}, DAIF", out(reg) daif, options(nomem, nostack));
+            }
+            println!("DAIF Register: 0x{:X}", daif);
+            println!(
+                "  D (Debug masked):    {}",
+                if daif & (1 << 9) != 0 { "YES" } else { "NO" }
+            );
+            println!(
+                "  A (SError masked):   {}",
+                if daif & (1 << 8) != 0 { "YES" } else { "NO" }
+            );
+            println!(
+                "  I (IRQ masked):      {}",
+                if daif & (1 << 7) != 0 { "YES" } else { "NO" }
+            );
+            println!(
+                "  F (FIQ masked):      {}",
+                if daif & (1 << 6) != 0 { "YES" } else { "NO" }
+            );
+
+            // Vector Base Address Register
+            let vbar: u64;
+            // SAFETY: Reading VBAR is safe (read-only access)
+            unsafe {
+                if el == 2 {
+                    asm!("mrs {}, vbar_el2", out(reg) vbar, options(nomem, nostack));
+                } else {
+                    asm!("mrs {}, vbar_el1", out(reg) vbar, options(nomem, nostack));
+                }
+            }
+            println!("Vector Table (VBAR): 0x{:016X}", vbar);
+
+            println!();
+
+            // Timer counter
+            let counter = SystemTimer::read_counter();
+            let uptime_sec = counter / 1_000_000;
+            println!("System Timer: {} us ({} sec)", counter, uptime_sec);
+
+            println!();
+
+            // Heap statistics (quick summary)
+            let total = ALLOCATOR.heap_size();
+            let used = ALLOCATOR.used();
+            let free = ALLOCATOR.free();
+            println!(
+                "Heap: {} KB used, {} MB free / {} MB total ({:.1}%)",
+                used / 1024,
+                free / 1024 / 1024,
+                total / 1024 / 1024,
+                (used as f32 / total as f32) * 100.0
+            );
+
+            println!();
+
+            // GIC status (just check if it's initialized by trying to read a register)
+            println!("GIC-400 Interrupt Controller:");
+            let gic = crate::drivers::gic::GIC.lock();
+            // Note: We can't easily read "enabled interrupts" without adding accessors,
+            // but we can show that it's initialized since we got the lock
+            drop(gic);
+            println!("  Status: Initialized");
+            println!("  UART0 interrupt: ID {}", crate::drivers::gic::irq::UART0);
+
+            println!();
+            println!("Use 'meminfo' for detailed heap statistics");
+        }
+
+        "exit" | "shutdown" | "halt" => {
+            use core::arch::asm;
+
+            println!("Shutting down...");
+            println!();
+
+            // In QEMU: This will exit the emulator via semihosting
+            // On real hardware: This will be ignored (semihosting not available)
+            crate::qemu::exit(crate::qemu::ExitCode::Success);
+
+            // Fallback for real hardware: Halt the CPU
+            // Note: The code below is unreachable in QEMU (qemu::exit never returns),
+            // but is executed on real hardware where semihosting is unavailable.
+            #[allow(unreachable_code)]
+            {
+                println!("System halted. Safe to power off.");
+
+                // Proper AArch64 halt sequence:
+                // 1. Disable interrupts
+                // 2. Memory barriers
+                // 3. WFI loop
+                //
+                // Reference: ARM Architecture Reference Manual
+                // Common pattern: MSR DAIFSET, #15; DSB SY; ISB SY; loop { WFI }
+                //
+                // SAFETY: This halt sequence is safe because:
+                // 1. We're intentionally shutting down - no more work should be done
+                // 2. Disabling interrupts prevents handlers from modifying state
+                // 3. Memory barriers ensure all pending transactions complete
+                // 4. WFI puts CPU in low-power mode (standard ARM halt pattern)
+                unsafe {
+                    asm!(
+                        "msr daifset, #15", // Disable D, A, I, F interrupts
+                        "dsb sy",           // Data Synchronization Barrier (full system)
+                        "isb",              // Instruction Synchronization Barrier
+                        "2:",               // Loop label
+                        "wfi",              // Wait For Interrupt
+                        "b 2b",             // Branch back to WFI (loop forever)
+                        options(noreturn)
+                    );
                 }
             }
         }

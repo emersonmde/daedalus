@@ -7,8 +7,8 @@
 - **Target**: Raspberry Pi 4 Model B only (BCM2711, Cortex-A72)
 - **Language**: Rust 2024, nightly, `#![no_std]` bare-metal
 - **Architecture**: AArch64 (ARMv8-A)
-- **Current State**: Phase 1 complete - interactive shell with comprehensive test suite
-- **Next Milestone**: Heap allocator (Phase 2)
+- **Current State**: Phase 2 in progress - Milestone #9 complete (GIC-400 interrupts)
+- **Next Milestone**: MMU & Paging (Phase 3)
 
 ## Quick Commands
 
@@ -47,8 +47,8 @@ All documentation is in **`docs/src/`** organized as reference wiki (not linear)
 - **Memory map & addresses**: `docs/src/hardware/memory-map.md`
 - **UART (PL011)**: `docs/src/hardware/uart-pl011.md` (includes baud rate calc, registers)
 - **GPIO**: `docs/src/hardware/gpio.md` (stub - not yet implemented)
-- **Timer**: `docs/src/hardware/timer.md` (stub)
-- **GIC interrupts**: `docs/src/hardware/gic.md` (stub - Phase 3)
+- **Timer**: `docs/src/hardware/timer.md` (system timer with delays)
+- **GIC interrupts**: `docs/src/hardware/gic.md` (GIC-400 interrupt controller)
 
 ### Architecture & Boot
 
@@ -135,11 +135,37 @@ src/
 
 ## Development Workflow
 
+**Standard workflow for implementing features:**
+
 1. **Read relevant doc** from `docs/src/`
 2. **Implement feature** with hardware reference comments
-3. **Update docs** if behavior changes
-4. **Run tests**: `cargo test` (all must pass)
-5. **Verify in QEMU**: `cargo run`
+3. **Run `cargo fmt`** to fix formatting
+4. **Run `./.githooks/pre-commit`** to verify all checks pass
+5. **Fix any errors/warnings** shown by pre-commit
+6. **Update documentation** after code verification passes
+7. **Test interactively** in QEMU (user handles this)
+
+### Pre-Commit Hook Details
+
+The pre-commit hook (`./.githooks/pre-commit`) ensures code quality:
+
+**What it runs:**
+- `cargo fmt --check` - Formatting (fails on errors)
+- `cargo clippy` - Linting (fails on errors, shows warnings)
+- `cargo doc` - Documentation build (fails on errors, shows warnings)
+- `cargo test` - All unit and integration tests (fails on test failures)
+- `cargo build --release` - Release build verification (fails on errors, shows warnings)
+
+**Common fixes:**
+- **Formatting errors**: Run `cargo fmt` before pre-commit
+- **Dead code warnings**: Add `#[allow(dead_code)]` to modules with future-use constants
+- **Bare URL warnings**: Wrap URLs in angle brackets: `<https://...>`
+- **Unused import warnings**: Remove or use the imports
+
+**When to run:**
+- ✅ After implementing features (before updating docs)
+- ✅ Before considering a milestone complete
+- ❌ Do not update documentation until pre-commit passes
 
 ## AI Agent Best Practices
 
@@ -171,6 +197,7 @@ src/
 - **Missing hardware detail**: Check `references/arm.md` or `references/raspberry-pi.md`
 - **Code doesn't match docs**: Verify against actual source (`src/`)
 - **Build fails**: Check `.cargo/config.toml` and `rust-toolchain`
+- **Pre-commit fails**: Run `cargo fmt` first, then address specific errors shown
 
 ## Version Info
 

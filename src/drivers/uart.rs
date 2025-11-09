@@ -31,7 +31,17 @@ mod pl011_flags {
     // Data Register (DR) bits - Section 3.3.1
     pub const DR_DATA_MASK: u32 = 0xFF; // Data bits [7:0]
 
+    // Interrupt Mask Set/Clear Register (IMSC) - Section 3.3.11
+    pub const IMSC_RXIM: u32 = 1 << 4; // Receive interrupt mask
+    pub const IMSC_RTIM: u32 = 1 << 6; // Receive timeout interrupt mask
+
+    // Masked Interrupt Status Register (MIS) - Section 3.3.12
+    pub const MIS_RXMIS: u32 = 1 << 4; // Receive masked interrupt status
+    pub const MIS_RTMIS: u32 = 1 << 6; // Receive timeout masked interrupt status
+
     // Interrupt Clear Register (ICR) - Section 3.3.13
+    pub const ICR_RXIC: u32 = 1 << 4; // Receive interrupt clear
+    pub const ICR_RTIC: u32 = 1 << 6; // Receive timeout interrupt clear
     pub const ICR_ALL: u32 = 0x7FF; // Clear all interrupts
 }
 
@@ -52,7 +62,8 @@ struct Pl011Registers {
     cr: Volatile<u32>,   // 0x30 - Control Register
     _rsv2: [u32; 1],
     imsc: Volatile<u32>, // 0x38 - Interrupt Mask Set/Clear
-    _rsv3: [u32; 2],
+    _rsv3: [u32; 1],
+    mis: Volatile<u32>, // 0x40 - Masked Interrupt Status
     icr: Volatile<u32>, // 0x44 - Interrupt Clear Register
 }
 
@@ -161,11 +172,68 @@ impl UartWriter {
         // Read and return the byte (only lower 8 bits are data)
         (self.registers.dr.read() & pl011_flags::DR_DATA_MASK) as u8
     }
+
+    /// Enable receive interrupts
+    ///
+    /// Enables both RX interrupt (fires when data is received) and
+    /// receive timeout interrupt (fires when FIFO has data but no new
+    /// characters arrive for a timeout period).
+    pub fn enable_rx_interrupt(&mut self) {
+        if !self.initialized {
+            self.init();
+        }
+
+        // Enable RX and RX timeout interrupts
+        let mut imsc = self.registers.imsc.read();
+        imsc |= pl011_flags::IMSC_RXIM | pl011_flags::IMSC_RTIM;
+        self.registers.imsc.write(imsc);
+    }
+
+    /// Disable receive interrupts
+    pub fn disable_rx_interrupt(&mut self) {
+        // Disable RX and RX timeout interrupts
+        let mut imsc = self.registers.imsc.read();
+        imsc &= !(pl011_flags::IMSC_RXIM | pl011_flags::IMSC_RTIM);
+        self.registers.imsc.write(imsc);
+    }
 }
 
 impl fmt::Write for UartWriter {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         self.write_string(s);
         Ok(())
+    }
+}
+
+/// Handle UART receive interrupt
+///
+/// Called by the IRQ handler when a UART interrupt fires.
+/// Reads all available bytes from the FIFO and clears the interrupt.
+pub fn handle_interrupt() {
+    let mut writer = WRITER.lock();
+
+    // Check interrupt status
+    let mis = writer.registers.mis.read();
+
+    // Handle receive interrupt or timeout
+    if (mis & (pl011_flags::MIS_RXMIS | pl011_flags::MIS_RTMIS)) != 0 {
+        // Read all available bytes from FIFO
+        while (writer.registers.fr.read() & pl011_flags::FR_RXFE) == 0 {
+            let byte = (writer.registers.dr.read() & pl011_flags::DR_DATA_MASK) as u8;
+
+            // For now, just echo the received character
+            // In the future, this could add to a buffer for the shell to read
+            if byte == b'\r' {
+                writer.write_byte(b'\n');
+            } else {
+                writer.write_byte(byte);
+            }
+        }
+
+        // Clear the interrupt
+        writer
+            .registers
+            .icr
+            .write(pl011_flags::ICR_RXIC | pl011_flags::ICR_RTIC);
     }
 }
