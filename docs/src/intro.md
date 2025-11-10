@@ -11,8 +11,8 @@ DaedalusOS is a bare-metal Rust kernel for the Raspberry Pi 4 Model B, developed
 
 ## Current Status
 
-**Phase 2 Complete**: Memory management and interrupts
-**Milestone #10 Complete**: MMU & Paging with virtual memory
+**Phase 3 In Progress**: Hardware I/O
+**Milestone #11 Complete**: GPIO Driver with pin control
 - Working REPL with command parsing and shell history
 - Exception vector table with register dumps
 - 8 MB heap with bump allocator
@@ -21,8 +21,10 @@ DaedalusOS is a bare-metal Rust kernel for the Raspberry Pi 4 Model B, developed
 - GIC-400 interrupt controller with interrupt-driven UART
 - MMU with 39-bit virtual address space (identity mapped)
 - Caching enabled for performance
+- GPIO driver with BCM2711 pull-up/down support
+- Shell commands for GPIO pin control (mode, pull, set, get, toggle)
 
-**Next Milestone**: GPIO driver (Phase 3)
+**Next Milestone**: Ethernet driver (Phase 4)
 
 ## Documentation Structure
 

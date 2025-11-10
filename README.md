@@ -267,12 +267,16 @@ daedalus-os/
 │   ├── exceptions.rs        # Exception handling (vectors, handlers, register dumps)
 │   ├── drivers/
 │   │   ├── mod.rs
-│   │   └── uart.rs          # PL011 UART driver with TX/RX support
+│   │   ├── uart.rs          # PL011 UART driver with interrupt-driven I/O
+│   │   ├── gpio.rs          # BCM2711 GPIO driver with pull-up/down control
+│   │   ├── timer.rs         # System timer with delay functions
+│   │   └── gic.rs           # GIC-400 interrupt controller
 │   ├── qemu.rs              # QEMU utilities (semihosting, exit codes)
 │   └── arch/
 │       └── aarch64/
 │           ├── boot.s       # Boot assembly (core parking, BSS, stack)
-│           └── exceptions.s # Exception vector table (16 vectors, context save/restore)
+│           ├── exceptions.s # Exception vector table (16 vectors, context save/restore)
+│           └── mmu.rs       # MMU initialization and page table setup
 ├── linker.ld                # Linker script (entry at 0x80000)
 ├── aarch64-daedalus.json    # Custom bare-metal AArch64 target spec
 ├── build.rs                 # Compiles assembly and links it
@@ -289,8 +293,8 @@ The project follows a modular structure inspired by Phil Opp's blog_os and tradi
 - **main.rs** - Minimal binary entry point
 - **shell.rs** - Interactive shell with command parsing and built-in commands
 - **exceptions.rs** - Exception handling with register dumps and ESR decoding
-- **drivers/** - Hardware device drivers (UART with polling-based I/O)
-- **arch/** - Architecture-specific code (boot stub, exception vectors, low-level init)
+- **drivers/** - Hardware device drivers (UART, GPIO, Timer, GIC)
+- **arch/** - Architecture-specific code (boot stub, exception vectors, MMU, low-level init)
 - **qemu.rs** - Emulator-specific utilities (not for real hardware)
 
 ## Documentation

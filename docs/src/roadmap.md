@@ -12,8 +12,8 @@ DaedalusOS development phases and milestones.
 
 ## Current Status
 
-**Phase 2 Complete** ✅ - Memory management and interrupts
-**Milestone #10 Complete** ✅ - MMU & Paging with virtual memory
+**Phase 3 In Progress** 🔄 - Hardware I/O
+**Milestone #11 Complete** ✅ - GPIO Driver with pin control
 - Working REPL with command parsing and shell history
 - Exception vector table with register dumps
 - 8 MB heap with bump allocator
@@ -22,8 +22,10 @@ DaedalusOS development phases and milestones.
 - GIC-400 interrupt controller with interrupt-driven UART
 - MMU with 39-bit virtual address space (identity mapped)
 - Caching enabled for performance
+- GPIO driver with BCM2711 pull-up/down support
+- Shell commands for GPIO pin control (mode, pull, set, get, toggle)
 
-**Next**: Phase 3 - GPIO driver (foundation for real-world I/O)
+**Next**: Phase 4 - Ethernet driver (networking stack)
 
 ## Phase 1: Interactive Shell ✅ COMPLETE
 
@@ -81,11 +83,13 @@ DaedalusOS development phases and milestones.
 
 **Goal**: Foundation for real-world device control
 
-**Milestone #11**: GPIO Driver
-- Pin configuration (input/output, pull-up/down)
-- Digital I/O (read/write GPIO pins)
-- LED control for visual feedback
-- Shell commands for GPIO manipulation
+**Milestone #11**: GPIO Driver ✅ COMPLETE
+- ✅ Pin configuration (input/output, alt functions 0-5)
+- ✅ BCM2711 pull-up/down resistor control (new register mechanism)
+- ✅ Digital I/O (read/write/toggle GPIO pins)
+- ✅ Shell commands: gpio-mode, gpio-pull, gpio-set, gpio-get, gpio-toggle
+- ✅ Support for all 58 GPIO pins (BCM2711)
+- ✅ Comprehensive hardware documentation
 
 ## Phase 4: Networking Stack
 

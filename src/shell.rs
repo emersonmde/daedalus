@@ -3,6 +3,7 @@
 //! Provides a simple command-line interface with built-in commands for
 //! system information, memory statistics, and testing.
 
+use crate::drivers::gpio::{Function, Gpio, Pull};
 use crate::drivers::timer::SystemTimer;
 use crate::drivers::uart::WRITER;
 use crate::{ALLOCATOR, print, println};
@@ -112,17 +113,32 @@ fn execute_command(cmd: Command) {
     match cmd.name {
         "help" => {
             println!("DaedalusOS Shell Commands:");
-            println!("  help      - Show this help message");
-            println!("  echo      - Print arguments to console");
-            println!("  clear     - Clear the screen");
-            println!("  version   - Show kernel version");
-            println!("  meminfo   - Display memory and heap statistics");
-            println!("  uptime    - Show system uptime");
-            println!("  history   - Show command history");
-            println!("  debug     - Show system debug information");
-            println!("  mmu       - Show MMU (virtual memory) status");
-            println!("  exit      - Shutdown system (exit QEMU or halt CPU)");
-            println!("  exception - Trigger a breakpoint exception (for testing)");
+            println!();
+            println!("System:");
+            println!("  help           - Show this help message");
+            println!("  version        - Show kernel version");
+            println!("  exit           - Shutdown system (exit QEMU or halt CPU)");
+            println!();
+            println!("Information:");
+            println!("  meminfo        - Display memory and heap statistics");
+            println!("  uptime         - Show system uptime");
+            println!("  debug          - Show system debug information");
+            println!("  mmu            - Show MMU (virtual memory) status");
+            println!("  history        - Show command history");
+            println!();
+            println!("GPIO:");
+            println!("  gpio-mode <pin> <mode>   - Set pin function (input/output/alt0-5)");
+            println!("  gpio-pull <pin> <mode>   - Set pull resistor (none/up/down)");
+            println!("  gpio-set <pin> <value>   - Set output pin (1=high, 0=low)");
+            println!("  gpio-get <pin>           - Read pin level");
+            println!("  gpio-toggle <pin>        - Toggle output pin");
+            println!();
+            println!("Utilities:");
+            println!("  echo           - Print arguments to console");
+            println!("  clear          - Clear the screen");
+            println!();
+            println!("Testing:");
+            println!("  exception      - Trigger a breakpoint exception");
         }
 
         "echo" => {
@@ -393,6 +409,172 @@ fn execute_command(cmd: Command) {
             // 5. This is the intended behavior for the "exception" test command
             unsafe {
                 core::arch::asm!("brk #0", options(nostack));
+            }
+        }
+
+        "gpio-mode" => {
+            let mut parts = cmd.args.split_whitespace();
+            let pin_str = parts.next();
+            let mode_str = parts.next();
+
+            if let (Some(pin_str), Some(mode_str)) = (pin_str, mode_str) {
+                if let Ok(pin) = pin_str.parse::<u32>() {
+                    if pin >= 58 {
+                        println!("Error: GPIO pin must be 0-57");
+                        return;
+                    }
+
+                    let function = match mode_str.to_lowercase().as_str() {
+                        "input" | "in" => Function::Input,
+                        "output" | "out" => Function::Output,
+                        "alt0" => Function::Alt0,
+                        "alt1" => Function::Alt1,
+                        "alt2" => Function::Alt2,
+                        "alt3" => Function::Alt3,
+                        "alt4" => Function::Alt4,
+                        "alt5" => Function::Alt5,
+                        _ => {
+                            println!("Error: Invalid mode '{}'", mode_str);
+                            println!(
+                                "Valid modes: input, output, alt0, alt1, alt2, alt3, alt4, alt5"
+                            );
+                            return;
+                        }
+                    };
+
+                    let gpio = Gpio::new();
+                    gpio.set_function(pin, function);
+                    println!("GPIO {} set to {:?}", pin, function);
+                } else {
+                    println!("Error: Invalid pin number '{}'", pin_str);
+                }
+            } else {
+                println!("Usage: gpio-mode <pin> <mode>");
+                println!("Example: gpio-mode 42 output");
+            }
+        }
+
+        "gpio-pull" => {
+            let mut parts = cmd.args.split_whitespace();
+            let pin_str = parts.next();
+            let mode_str = parts.next();
+
+            if let (Some(pin_str), Some(mode_str)) = (pin_str, mode_str) {
+                if let Ok(pin) = pin_str.parse::<u32>() {
+                    if pin >= 58 {
+                        println!("Error: GPIO pin must be 0-57");
+                        return;
+                    }
+
+                    let pull = match mode_str.to_lowercase().as_str() {
+                        "none" | "off" | "disable" => Pull::None,
+                        "up" | "pullup" | "pull-up" => Pull::Up,
+                        "down" | "pulldown" | "pull-down" => Pull::Down,
+                        _ => {
+                            println!("Error: Invalid pull mode '{}'", mode_str);
+                            println!("Valid modes: none, up, down");
+                            return;
+                        }
+                    };
+
+                    let gpio = Gpio::new();
+                    gpio.set_pull(pin, pull);
+                    println!("GPIO {} pull resistor set to {:?}", pin, pull);
+                } else {
+                    println!("Error: Invalid pin number '{}'", pin_str);
+                }
+            } else {
+                println!("Usage: gpio-pull <pin> <mode>");
+                println!("Example: gpio-pull 17 up");
+            }
+        }
+
+        "gpio-set" => {
+            let mut parts = cmd.args.split_whitespace();
+            let pin_str = parts.next();
+            let value_str = parts.next();
+
+            if let (Some(pin_str), Some(value_str)) = (pin_str, value_str) {
+                if let Ok(pin) = pin_str.parse::<u32>() {
+                    if pin >= 58 {
+                        println!("Error: GPIO pin must be 0-57");
+                        return;
+                    }
+
+                    let value = match value_str {
+                        "1" | "high" | "on" | "true" => true,
+                        "0" | "low" | "off" | "false" => false,
+                        _ => {
+                            println!("Error: Invalid value '{}'", value_str);
+                            println!("Valid values: 1/high/on or 0/low/off");
+                            return;
+                        }
+                    };
+
+                    let gpio = Gpio::new();
+                    gpio.write(pin, value);
+                    println!("GPIO {} set to {}", pin, if value { "HIGH" } else { "LOW" });
+                } else {
+                    println!("Error: Invalid pin number '{}'", pin_str);
+                }
+            } else {
+                println!("Usage: gpio-set <pin> <value>");
+                println!("Example: gpio-set 42 1");
+            }
+        }
+
+        "gpio-get" => {
+            let pin_str = cmd.args.trim();
+
+            if !pin_str.is_empty() {
+                if let Ok(pin) = pin_str.parse::<u32>() {
+                    if pin >= 58 {
+                        println!("Error: GPIO pin must be 0-57");
+                        return;
+                    }
+
+                    let gpio = Gpio::new();
+                    let value = gpio.read(pin);
+                    println!(
+                        "GPIO {} = {} ({})",
+                        pin,
+                        if value { 1 } else { 0 },
+                        if value { "HIGH" } else { "LOW" }
+                    );
+                } else {
+                    println!("Error: Invalid pin number '{}'", pin_str);
+                }
+            } else {
+                println!("Usage: gpio-get <pin>");
+                println!("Example: gpio-get 17");
+            }
+        }
+
+        "gpio-toggle" => {
+            let pin_str = cmd.args.trim();
+
+            if !pin_str.is_empty() {
+                if let Ok(pin) = pin_str.parse::<u32>() {
+                    if pin >= 58 {
+                        println!("Error: GPIO pin must be 0-57");
+                        return;
+                    }
+
+                    let gpio = Gpio::new();
+                    gpio.toggle(pin);
+                    let new_value = gpio.read(pin);
+                    println!(
+                        "GPIO {} toggled to {} ({})",
+                        pin,
+                        if new_value { 1 } else { 0 },
+                        if new_value { "HIGH" } else { "LOW" }
+                    );
+                } else {
+                    println!("Error: Invalid pin number '{}'", pin_str);
+                }
+            } else {
+                println!("Usage: gpio-toggle <pin>");
+                println!("Example: gpio-toggle 42");
             }
         }
 
