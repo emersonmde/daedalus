@@ -46,6 +46,7 @@ All MMIO regions are mapped as device memory (non-cacheable, strictly ordered).
 | System Timer | `0xFE003000` | BCM2711 §10.2 |
 | GIC-400 Distributor (GICD) | `0xFF841000` | BCM2711 §6.1 |
 | GIC-400 CPU Interface (GICC) | `0xFF842000` | BCM2711 §6.1 |
+| GENET v5 Ethernet | `0xFD580000` | Linux bcmgenet driver |
 | Mailbox | `0xFE00B880` | BCM2711 §1.3 |
 
 ## Kernel Memory Layout
@@ -124,7 +125,9 @@ Planned for future milestones:
 - Linker script: `linker.ld`
 - Page tables: `src/arch/aarch64/mmu.rs` (L1_TABLE, L2_TABLE_*)
 - UART base: `src/drivers/uart.rs` (`UART_BASE`)
+- GPIO base: `src/drivers/gpio.rs` (`GPIO_BASE`)
 - GIC base: `src/drivers/gic.rs` (`GICD_BASE`, `GICC_BASE`)
+- GENET base: `src/drivers/genet.rs` (`GENET_BASE`)
 
 ## External References
 

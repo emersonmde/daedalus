@@ -21,6 +21,7 @@ pub mod allocator;
 pub mod arch;
 pub mod drivers;
 pub mod exceptions;
+pub mod net;
 pub mod qemu;
 pub mod shell;
 

@@ -3,6 +3,7 @@
 //! Provides a simple command-line interface with built-in commands for
 //! system information, memory statistics, and testing.
 
+use crate::drivers::genet::GenetController;
 use crate::drivers::gpio::{Function, Gpio, Pull};
 use crate::drivers::timer::SystemTimer;
 use crate::drivers::uart::WRITER;
@@ -132,6 +133,9 @@ fn execute_command(cmd: Command) {
             println!("  gpio-set <pin> <value>   - Set output pin (1=high, 0=low)");
             println!("  gpio-get <pin>           - Read pin level");
             println!("  gpio-toggle <pin>        - Toggle output pin");
+            println!();
+            println!("Network:");
+            println!("  eth-diag       - Run Ethernet hardware diagnostics");
             println!();
             println!("Utilities:");
             println!("  echo           - Print arguments to console");
@@ -576,6 +580,12 @@ fn execute_command(cmd: Command) {
                 println!("Usage: gpio-toggle <pin>");
                 println!("Example: gpio-toggle 42");
             }
+        }
+
+        "eth-diag" => {
+            println!();
+            let genet = GenetController::new();
+            let _ = genet.diagnostic();
         }
 
         _ => {

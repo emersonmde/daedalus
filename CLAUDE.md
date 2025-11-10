@@ -7,8 +7,8 @@
 - **Target**: Raspberry Pi 4 Model B only (BCM2711, Cortex-A72)
 - **Language**: Rust 2024, nightly, `#![no_std]` bare-metal
 - **Architecture**: AArch64 (ARMv8-A)
-- **Current State**: Phase 2 complete - MMU & Paging operational
-- **Next Milestone**: GPIO driver (Phase 3)
+- **Current State**: Phase 4 in progress - Ethernet driver foundation complete
+- **Next Milestone**: Frame TX/RX (Milestone #13)
 - **End Goal**: Network-enabled device for remote GPIO control via HTTP
 
 ## Dependency Philosophy
@@ -114,9 +114,10 @@ All documentation is in **`docs/src/`** organized as reference wiki (not linear)
 **When**: Implementing drivers, debugging hardware issues
 - **Memory map & addresses**: `docs/src/hardware/memory-map.md`
 - **UART (PL011)**: `docs/src/hardware/uart-pl011.md` (includes baud rate calc, registers)
-- **GPIO**: `docs/src/hardware/gpio.md` (stub - not yet implemented)
+- **GPIO**: `docs/src/hardware/gpio.md` (BCM2711 GPIO driver)
 - **Timer**: `docs/src/hardware/timer.md` (system timer with delays)
 - **GIC interrupts**: `docs/src/hardware/gic.md` (GIC-400 interrupt controller)
+- **Ethernet**: `docs/ethernet-driver-research.md` (GENET v5, BCM54213PE PHY)
 
 ### Architecture & Boot
 
@@ -153,6 +154,8 @@ All documentation is in **`docs/src/`** organized as reference wiki (not linear)
 | **MMIO base (ARM)** | `0xFE000000` | BCM2711 ARM mapping (NOT 0x3F000000!) |
 | **UART base** | `0xFE201000` | PL011 registers |
 | **UART clock** | 54 MHz | Pi 4 specific (Pi 3 = 48 MHz) |
+| **GPIO base** | `0xFE200000` | GPIO controller |
+| **GENET base** | `0xFD580000` | Ethernet MAC controller |
 | **GIC distributor** | `0xFF841000` | Interrupt controller |
 | **System timer** | `0xFE003000` | Timing functions |
 
@@ -194,11 +197,19 @@ src/
 ├── shell.rs             # Interactive REPL
 ├── exceptions.rs        # Exception handlers, ESR/FAR decoding
 ├── drivers/
-│   └── uart.rs          # PL011 driver (TX/RX)
+│   ├── uart.rs          # PL011 driver (TX/RX)
+│   ├── gpio.rs          # BCM2711 GPIO driver
+│   ├── genet.rs         # GENET v5 Ethernet MAC
+│   ├── timer.rs         # System timer
+│   └── gic.rs           # GIC-400 interrupt controller
+├── net/
+│   ├── ethernet.rs      # Ethernet frame handling
+│   └── arp.rs           # ARP protocol
 ├── qemu.rs              # Semihosting utilities
 └── arch/aarch64/
     ├── boot.s           # Assembly entry, core parking
-    └── exceptions.s     # Exception vector table
+    ├── exceptions.s     # Exception vector table
+    └── mmu.rs           # MMU/paging configuration
 ```
 
 ## Development Workflow

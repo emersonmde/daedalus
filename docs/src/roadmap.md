@@ -192,10 +192,10 @@ DaedalusOS development phases and milestones.
 ## Development Practices
 
 Each milestone must:
-1. Build successfully (`cargo build`)
-2. Pass all tests (`cargo test`)
-3. Run in QEMU (`cargo run`)
-4. Update documentation
+1. Pass pre-commit script with **no errors or warnings** (`./.githooks/pre-commit`)
+   - This verifies: formatting, clippy, documentation, tests, and build
+2. Run in QEMU (`cargo run`) for interactive verification
+3. Update documentation (code docs, milestone summary, and relevant guides)
 
 ## Documentation Requirements
 

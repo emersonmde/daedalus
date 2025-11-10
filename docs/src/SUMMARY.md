@@ -11,6 +11,8 @@
 - [GPIO](hardware/gpio.md)
 - [System Timer](hardware/timer.md)
 - [GIC-400 Interrupt Controller](hardware/gic.md)
+- [GENET Ethernet Controller](hardware/genet.md)
+  - [Constant Verification](hardware/genet-verification.md)
 
 # Architecture
 
@@ -19,6 +21,12 @@
 - [Linker Script](architecture/linker-script.md)
 - [Heap Allocator](architecture/allocator.md)
 - [MMU & Paging](architecture/mmu-paging.md)
+- [Testing Framework](architecture/testing.md)
+- [Network Protocol Stack](architecture/networking.md)
+
+# Guides
+
+- [Networking Guide](networking-guide.md)
 
 # External References
 
