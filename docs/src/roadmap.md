@@ -12,8 +12,8 @@ DaedalusOS development phases and milestones.
 
 ## Current Status
 
-**Phase 3 In Progress** 🔄 - Hardware I/O
-**Milestone #11 Complete** ✅ - GPIO Driver with pin control
+**Phase 4 In Progress** 🔄 - Networking Stack
+**Milestone #12 Complete** ✅ - Ethernet Driver Foundation
 - Working REPL with command parsing and shell history
 - Exception vector table with register dumps
 - 8 MB heap with bump allocator
@@ -24,8 +24,11 @@ DaedalusOS development phases and milestones.
 - Caching enabled for performance
 - GPIO driver with BCM2711 pull-up/down support
 - Shell commands for GPIO pin control (mode, pull, set, get, toggle)
+- GENET Ethernet controller hardware driver (detection, MDIO, PHY)
+- Ethernet and ARP protocol structures with 30 unit tests
+- Shell command: `eth-diag` (hardware diagnostics)
 
-**Next**: Phase 4 - Ethernet driver (networking stack)
+**Next**: Milestone #13 - Frame transmission and reception
 
 ## Phase 1: Interactive Shell ✅ COMPLETE
 
@@ -91,58 +94,74 @@ DaedalusOS development phases and milestones.
 - ✅ Support for all 58 GPIO pins (BCM2711)
 - ✅ Comprehensive hardware documentation
 
-## Phase 4: Networking Stack
+## Phase 4: Networking Stack 🔄 IN PROGRESS
 
 **Goal**: Network-enabled device (the primary objective)
 
-**Milestone #12**: Ethernet Driver (BCM54213PE PHY)
-- GENET controller initialization
-- PHY configuration and link detection
-- Interrupt-driven packet TX/RX (no DMA initially)
-- MAC address configuration
-- ARP handling
+**Milestone #12**: Ethernet Driver Foundation ✅ COMPLETE
+- ✅ GENET v5 hardware detection and register access
+- ✅ MDIO protocol implementation (PHY communication)
+- ✅ BCM54213PE PHY detection and identification
+- ✅ Ethernet frame structures and parsing
+- ✅ ARP packet structures and parsing
+- ✅ Network byte order handling
+- ✅ 30 protocol unit tests passing
+- ✅ Comprehensive documentation (hardware, protocols, verification)
+- ✅ Shell command: `eth-diag` (hardware diagnostics)
 
-**Milestone #13**: IP Layer
-- Integrate `smoltcp` TCP/IP stack
+**Milestone #13**: Frame Transmission & Reception
+- Frame TX implementation (simple polling mode)
+- Frame RX implementation (polling)
+- MAC address configuration
+- Basic frame validation
+- Shell commands: `eth-status`, `eth-send`
+
+**Milestone #14**: Interrupt-Driven Networking
+- Register GENET interrupts with GIC
+- RX interrupt handler
+- TX completion handling
+- Frame queuing for processing
+
+**Milestone #15**: ARP Responder
+- ARP cache implementation with expiration
+- ARP request/reply handling
+- Respond to ARP requests for our IP
+- Shell command: `arp-cache`
+
+**Milestone #16**: TCP/IP Stack Integration (smoltcp)
+- Integrate `smoltcp` no_std TCP/IP stack
+- Implement Device trait (maps to GENET driver)
 - IPv4 packet handling
 - ICMP echo (ping support)
-- Basic routing
+- DHCP client for IP configuration
+- UDP/TCP socket support
 
-**Milestone #14**: Transport Layer
-- UDP sockets
-- TCP connection management
-- Port binding and listening
-
-**Milestone #15**: Application Protocols
+**Milestone #17**: Application Protocols
 - DNS resolver (A records)
-- HTTP/1.0 client (GET/POST)
+- HTTP/1.1 client (GET/POST)
 - Simple HTTP server for device control
-
-**Milestone #16**: Network Shell Commands
-- `ping` - Test connectivity
-- `http-get` - Fetch URLs
-- `gpio-server` - HTTP API for GPIO control
+- Shell commands: `ping`, `http-get`, `gpio-server`
 
 ## Phase 5: Advanced Features (Future Self-Implementation)
 
 **Goal**: Optimizations and advanced capabilities
 
-**Milestone #17**: DMA Controller
+**Milestone #18**: DMA Controller
 - DMA channel setup
 - Optimize Ethernet for DMA-based transfers
 - Improve SD card performance (when implemented)
 
-**Milestone #18**: Better Allocator
+**Milestone #19**: Better Allocator
 - Replace bump allocator with buddy or slab allocator
 - Free/reallocation support
 - Fragmentation management
 
-**Milestone #19**: Multi-Core Support
+**Milestone #20**: Multi-Core Support
 - Wake secondary cores (cores 1-3)
 - Spinlocks and synchronization primitives
 - Per-core data structures
 
-**Milestone #20**: Cooperative Scheduler
+**Milestone #21**: Cooperative Scheduler
 - Task switching for async I/O
 - Event-driven network processing
 - Timer-based task scheduling
@@ -151,12 +170,12 @@ DaedalusOS development phases and milestones.
 
 **Goal**: Persistent storage and filesystems
 
-**Milestone #21**: SD Card Driver
+**Milestone #22**: SD Card Driver
 - EMMC controller initialization
 - Block read/write operations
 - Interrupt-driven I/O
 
-**Milestone #22**: FAT32 Filesystem
+**Milestone #23**: FAT32 Filesystem
 - Parse FAT32 structures
 - File operations (open, read, write, close)
 - Directory traversal
@@ -165,12 +184,12 @@ DaedalusOS development phases and milestones.
 
 **Goal**: Additional peripherals and buses
 
-**Milestone #23**: I2C/SPI Drivers
+**Milestone #24**: I2C/SPI Drivers
 - Bus initialization
 - Multi-device support
 - Sensor integration
 
-**Milestone #24**: USB Host Controller
+**Milestone #25**: USB Host Controller
 - xHCI/EHCI initialization
 - USB device enumeration
 - Keyboard/mouse/storage support
@@ -179,12 +198,12 @@ DaedalusOS development phases and milestones.
 
 **Goal**: Process isolation and privilege separation
 
-**Milestone #25**: EL0 Userspace
+**Milestone #26**: EL0 Userspace
 - Drop to EL0 for user programs
 - System call interface (SVC handler)
 - User/kernel memory isolation
 
-**Milestone #26**: Process Management
+**Milestone #27**: Process Management
 - Process creation/termination
 - Basic IPC mechanisms
 - Resource limits and scheduling
