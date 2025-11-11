@@ -246,6 +246,34 @@ The pre-commit hook (`./.githooks/pre-commit`) ensures code quality:
 - ✅ Before considering a milestone complete
 - ❌ Do not update documentation until pre-commit passes
 
+## Architecture Decision Records (ADRs)
+
+When making significant architectural decisions, create an ADR documenting the choice.
+
+**When to write an ADR**: Ask "Would future-me wonder why this design exists?"
+
+Triggers include:
+- One-way door decisions (hard to reverse, e.g., target platform)
+- Non-obvious trade-offs (alternatives had merit)
+- Future-facing design (adding complexity now for later benefit)
+- Breaking conventions (with good reason)
+
+**Template and guidance**: See `docs/src/decisions/README.md` for:
+- Full ADR template
+- Best practices (context-first, acknowledge trade-offs, reversal plans)
+- Examples from this project (ADR-001, ADR-002, ADR-003)
+- Anti-patterns to avoid
+
+**Key sections**:
+1. Context (problem + alternatives)
+2. Decision (what was chosen)
+3. Rationale (why this over alternatives)
+4. Consequences (positive + negative)
+5. Reversal Plan (how to undo + triggers + cost)
+
+**Numbering**: Sequential with zero-padding (adr-001, adr-002, etc.)
+**Status**: Proposed → Accepted → [Deprecated | Superseded]
+
 ## AI Agent Best Practices
 
 **DO:**

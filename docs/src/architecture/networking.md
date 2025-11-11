@@ -1,14 +1,20 @@
 # Network Protocol Stack
 
-**Modules**: `src/net/ethernet.rs`, `src/net/arp.rs`
-**Status**: Protocol parsing and construction implemented
-**Testing**: 30 unit tests passing
+**Modules**: `src/net/ethernet.rs`, `src/net/arp.rs`, `src/drivers/netdev.rs`
+**Status**: Protocol parsing and device abstraction implemented
+**Testing**: 66 unit tests passing (30 protocol + 36 other)
 
 ---
 
 ## Overview
 
-DaedalusOS implements a lightweight network protocol stack for Ethernet networking. The current implementation focuses on Layer 2 (Data Link) protocols, providing the foundation for future IP/TCP/UDP support.
+DaedalusOS implements a lightweight network protocol stack for Ethernet networking. The current implementation includes:
+
+- **Device Abstraction**: `NetworkDevice` trait for hardware portability
+- **Layer 2 Protocols**: Ethernet II frames and ARP
+- **GENET Driver**: BCM2711 Ethernet controller (Pi 4)
+
+This provides the foundation for future IP/TCP/UDP support via smoltcp.
 
 ### Architecture Layers
 
@@ -44,18 +50,155 @@ DaedalusOS implements a lightweight network protocol stack for Ethernet networki
 ### Current Implementation Scope
 
 **✅ Implemented**:
+- **Device Abstraction**: `NetworkDevice` trait for multiple hardware implementations
+- **Hardware Driver**: GENET v5 controller (Pi 4) with trait implementation
 - Ethernet II frame parsing and construction
 - MAC address representation and validation
 - ARP packet parsing and construction
 - ARP request/reply generation
 - Network byte order handling (big-endian)
 
-**❌ Not Yet Implemented**:
-- Actual frame transmission/reception (hardware integration)
+**❌ Not Yet Implemented** (Coming in Milestone #13+):
+- Actual frame transmission/reception (hardware TX/RX)
 - ARP cache management
 - IP protocol (IPv4/IPv6)
-- Transport protocols (TCP/UDP)
+- Transport protocols (TCP/UDP via smoltcp)
 - Application protocols
+
+---
+
+## Network Device Abstraction
+
+Module: `src/drivers/netdev.rs`
+
+The `NetworkDevice` trait provides a hardware-independent interface for Ethernet network devices. This abstraction enables:
+
+- **Hardware portability**: Support multiple Ethernet controllers (Pi 4 GENET, future Pi 5, QEMU mock)
+- **Testing**: Mock devices for protocol testing without hardware
+- **smoltcp integration**: Clean interface for TCP/IP stack (Milestone #16)
+
+See [ADR-003: Network Device Abstraction](../decisions/adr-003-network-device-trait.md) for design rationale.
+
+### NetworkDevice Trait
+
+```rust
+pub trait NetworkDevice {
+    /// Check if hardware is present (false in QEMU)
+    fn is_present(&self) -> bool;
+
+    /// Initialize device (reset MAC, configure PHY, set up buffers)
+    fn init(&mut self) -> Result<(), NetworkError>;
+
+    /// Transmit Ethernet frame (blocking, 60-1514 bytes)
+    fn transmit(&mut self, frame: &[u8]) -> Result<(), NetworkError>;
+
+    /// Receive frame (non-blocking, returns None if no frame available)
+    fn receive(&mut self) -> Option<&[u8]>;
+
+    /// Get device MAC address
+    fn mac_address(&self) -> MacAddress;
+
+    /// Check link status (optional, default: false)
+    fn link_up(&self) -> bool { false }
+}
+```
+
+### Error Handling
+
+```rust
+pub enum NetworkError {
+    HardwareNotPresent,   // Device not detected
+    NotInitialized,       // init() not called yet
+    TxBufferFull,         // Hardware TX queue full
+    FrameTooLarge,        // Frame > 1514 bytes
+    FrameTooSmall,        // Frame < 60 bytes
+    HardwareError,        // MAC/PHY error
+    Timeout,              // Operation timeout
+    InvalidConfiguration, // Bad parameters
+}
+```
+
+### Current Implementations
+
+#### GenetController (Raspberry Pi 4)
+
+```rust
+use daedalus::drivers::genet::GenetController;
+use daedalus::drivers::netdev::NetworkDevice;
+
+let mut netdev = GenetController::new();
+
+// Check hardware presence (returns false in QEMU)
+if netdev.is_present() {
+    netdev.init()?;
+
+    // Get MAC address
+    let mac = netdev.mac_address();
+
+    // Check link status (reads PHY BMSR register)
+    if netdev.link_up() {
+        // Transmit frame (Milestone #13)
+        netdev.transmit(&frame)?;
+
+        // Receive frame (Milestone #13)
+        if let Some(frame) = netdev.receive() {
+            // Process frame
+        }
+    }
+}
+```
+
+**Hardware**: BCM2711 GENET v5 Ethernet MAC controller
+**PHY**: BCM54213PE Gigabit Ethernet transceiver
+
+#### MockNetworkDevice (Future - Milestone #14)
+
+Planned mock implementation for QEMU testing:
+
+```rust
+pub struct MockNetworkDevice {
+    rx_queue: Vec<Vec<u8>>,       // Injected RX frames
+    tx_captured: Vec<Vec<u8>>,    // Captured TX frames
+    mac: MacAddress,
+}
+
+impl NetworkDevice for MockNetworkDevice {
+    fn is_present(&self) -> bool { true }  // Always present
+
+    fn transmit(&mut self, frame: &[u8]) -> Result<(), NetworkError> {
+        self.tx_captured.push(frame.to_vec());  // Capture for testing
+        Ok(())
+    }
+
+    fn receive(&mut self) -> Option<&[u8]> {
+        self.rx_queue.pop().map(|frame| frame.as_slice())
+    }
+}
+```
+
+This will enable network protocol testing in QEMU without real hardware.
+
+### Design Decisions
+
+**Why blocking transmit?**
+- Simplifies initial implementation (interrupts come in Milestone #14)
+- Common pattern (Linux `ndo_start_xmit`, smoltcp)
+- API remains stable when adding interrupt-driven I/O
+
+**Why non-blocking receive?**
+- Protocol stacks poll in loops (e.g., `loop { if let Some(f) = receive() { ... } }`)
+- Matches smoltcp's token-based API expectations
+- No thread blocking in bare-metal single-core environment
+
+**Why single-frame API (no queues)?**
+- Implementations use hardware ring buffers internally (GENET)
+- Trait stays simple and focused
+- Protocol stacks manage their own packet buffers
+
+**Why frame size validation (60-1514 bytes)?**
+- Enforces IEEE 802.3 Ethernet constraints at trait level
+- Prevents invalid frames from reaching hardware
+- Source: IEEE 802.3 Ethernet standard
 
 ---
 
@@ -864,23 +1007,30 @@ fn save_pcap(frames: &[Vec<u8>], filename: &str) {
 
 ## Next Steps
 
-### Integration with GENET
+### Integration with Network Device
 
-Once frame TX/RX is implemented in the GENET driver:
+Once frame TX/RX is implemented (Milestone #13):
 
 ```rust
-// Initialize networking
-let genet = GenetController::new();
-genet.init()?;
+use daedalus::drivers::netdev::NetworkDevice;
+use daedalus::drivers::genet::GenetController;
 
-// Register frame handler
-genet.set_rx_handler(|frame_data| {
-    handle_received_frame(frame_data);
-});
+// Initialize networking (works with any NetworkDevice implementation)
+let mut netdev = GenetController::new();
+if netdev.is_present() {
+    netdev.init()?;
 
-// Send frames
-fn send_frame(data: &[u8]) -> Result<(), Error> {
-    genet.transmit(data)
+    // Send frames
+    fn send_frame<T: NetworkDevice>(netdev: &mut T, data: &[u8]) -> Result<(), NetworkError> {
+        netdev.transmit(data)
+    }
+
+    // Receive frames (polling loop)
+    loop {
+        if let Some(frame_data) = netdev.receive() {
+            handle_received_frame(frame_data);
+        }
+    }
 }
 ```
 

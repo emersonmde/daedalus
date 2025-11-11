@@ -509,6 +509,87 @@ impl GenetController {
 }
 
 // ============================================================================
+// NetworkDevice Trait Implementation
+// ============================================================================
+
+use crate::drivers::netdev::{NetworkDevice, NetworkError};
+use crate::net::ethernet::MacAddress;
+
+impl NetworkDevice for GenetController {
+    fn is_present(&self) -> bool {
+        // Use existing hardware detection
+        let version = self.read_reg(SYS_REV_CTRL);
+        let major_version = (version >> 16) & 0xFFFF;
+        major_version == 0x0005
+    }
+
+    fn init(&mut self) -> Result<(), NetworkError> {
+        // Check hardware is present first
+        if !self.is_present() {
+            return Err(NetworkError::HardwareNotPresent);
+        }
+
+        // TODO (Milestone #13): Implement full initialization
+        // - Reset UMAC
+        // - Configure MAC address
+        // - Set up TX/RX buffers
+        // - Initialize PHY
+        // - Enable TX/RX
+
+        // For now, just verify we can communicate with PHY
+        if self.read_phy_id().is_none() {
+            return Err(NetworkError::HardwareError);
+        }
+
+        Ok(())
+    }
+
+    fn transmit(&mut self, frame: &[u8]) -> Result<(), NetworkError> {
+        // Validate frame size
+        if frame.len() < 60 {
+            return Err(NetworkError::FrameTooSmall);
+        }
+        if frame.len() > 1514 {
+            return Err(NetworkError::FrameTooLarge);
+        }
+
+        // TODO (Milestone #13): Implement frame transmission
+        // - Check if hardware is initialized
+        // - Copy frame to TX buffer
+        // - Trigger transmission
+        // - Wait for buffer ready
+
+        Err(NetworkError::NotInitialized)
+    }
+
+    fn receive(&mut self) -> Option<&[u8]> {
+        // TODO (Milestone #13): Implement frame reception
+        // - Check RX status register
+        // - If frame available, copy from RX buffer
+        // - Validate frame (CRC, length)
+        // - Return frame data
+
+        None
+    }
+
+    fn mac_address(&self) -> MacAddress {
+        // TODO (Milestone #13): Read MAC address from OTP
+        // For now, return a placeholder
+        // Raspberry Pi OUI is B8:27:EB
+        MacAddress::new([0xB8, 0x27, 0xEB, 0x00, 0x00, 0x00])
+    }
+
+    fn link_up(&self) -> bool {
+        // Check PHY link status via BMSR register
+        if let Some(bmsr) = self.mdio_read(PHY_ADDR, MII_BMSR) {
+            (bmsr & BMSR_LSTATUS) != 0
+        } else {
+            false
+        }
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -560,5 +641,46 @@ mod tests {
         assert_eq!(MII_PHYSID2, 0x03);
         assert_eq!(MII_ADVERTISE, 0x04);
         assert_eq!(MII_LPA, 0x05);
+    }
+
+    #[test_case]
+    fn test_network_device_trait() {
+        use crate::drivers::netdev::NetworkDevice;
+
+        let genet = GenetController::new();
+
+        // NOTE: Cannot test is_present() in QEMU - it tries to read GENET registers
+        // which causes Data Abort. Hardware detection is tested via eth-diag shell command.
+
+        // Test MAC address returns valid format
+        let mac = genet.mac_address();
+        assert_eq!(mac.as_bytes()[0], 0xB8); // Raspberry Pi OUI
+
+        // Test frame size validation
+        let mut genet_mut = GenetController::new();
+
+        // Frame too small
+        let small_frame = [0u8; 30];
+        assert_eq!(
+            genet_mut.transmit(&small_frame),
+            Err(NetworkError::FrameTooSmall)
+        );
+
+        // Frame too large
+        let large_frame = [0u8; 2000];
+        assert_eq!(
+            genet_mut.transmit(&large_frame),
+            Err(NetworkError::FrameTooLarge)
+        );
+
+        // Valid size but not initialized returns error
+        let valid_frame = [0u8; 64];
+        assert_eq!(
+            genet_mut.transmit(&valid_frame),
+            Err(NetworkError::NotInitialized)
+        );
+
+        // Receive returns None (not implemented)
+        assert!(genet_mut.receive().is_none());
     }
 }

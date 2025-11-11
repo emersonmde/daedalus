@@ -84,6 +84,14 @@ If multi-architecture support becomes necessary:
 
 **Cost estimate**: 2-4 weeks of refactoring, significant ongoing testing burden.
 
+**Triggers for reversal**:
+- Project scope expands beyond learning (e.g., production deployment)
+- Need to support multiple Pi models with different hardware (Pi 5, CM4)
+- Community contributions require broader hardware support
+- Cloud/VM deployment becomes a requirement (x86_64)
+
+**Current assessment**: Not triggered. Learning focus remains valid.
+
 ## Current State
 
 - x86_64 code removed from main branch (2025-11-08)

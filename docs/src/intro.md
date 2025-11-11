@@ -22,7 +22,8 @@ DaedalusOS is a bare-metal Rust kernel for the Raspberry Pi 4 Model B, developed
 - MMU with 39-bit virtual address space (identity mapped)
 - Caching enabled for performance
 - GPIO driver with BCM2711 pull-up/down support
-- Ethernet frame and ARP protocol implementation
+- **NetworkDevice trait abstraction** for hardware portability
+- Ethernet frame and ARP protocol implementation (30 unit tests)
 - GENET v5 MAC driver with MDIO/PHY management
 - Hardware diagnostics command (`eth-diag`)
 
@@ -40,6 +41,7 @@ This documentation is organized as a reference wiki, not a linear tutorial. Jump
 ### For Understanding Design
 - **Why Pi 4 only?**: See [ADR-001](decisions/adr-001-pi-only.md)
 - **QEMU requirements**: See [ADR-002](decisions/adr-002-qemu-9.md)
+- **Network device abstraction**: See [ADR-003](decisions/adr-003-network-device-trait.md)
 - **Project roadmap**: See [Roadmap](roadmap.md)
 
 ### For Reference

@@ -36,8 +36,10 @@
 
 # Design Decisions
 
+- [About ADRs](decisions/README.md)
 - [ADR-001: Raspberry Pi 4 Only](decisions/adr-001-pi-only.md)
 - [ADR-002: QEMU 9.0+ Requirement](decisions/adr-002-qemu-9.md)
+- [ADR-003: Network Device Abstraction](decisions/adr-003-network-device-trait.md)
 
 ---
 

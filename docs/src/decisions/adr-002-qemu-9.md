@@ -80,6 +80,27 @@ Using `raspi3b` machine type (Pi 3 emulation) was considered but rejected:
 - **CI build time**: First GH Actions run takes ~4 minutes to compile QEMU
 - **Storage**: QEMU build artifacts ~300 MB (mitigated by caching)
 
+## Reversal Plan
+
+This decision will naturally reverse itself as Linux distributions catch up:
+
+**When distribution packages suffice**:
+1. Update README to recommend `apt install qemu-system-aarch64` (1 line change)
+2. Simplify CI workflow to use apt instead of building from source
+3. Remove QEMU build caching steps from GitHub Actions
+4. Update ADR-002 status to "Superseded by standard packages"
+
+**Estimated timeline**: Ubuntu 26.04 LTS (April 2026) will likely ship QEMU 10+
+
+**Cost of reversal**: Minimal (simplification, not refactoring)
+
+**Triggers for early reversal**:
+- Ubuntu backports QEMU 9.0+ to 24.04 LTS (check `ubuntu-proposed`)
+- Raspberry Pi official QEMU binaries become available
+- CI environment switches to newer Ubuntu version
+
+This is a **temporary workaround** that will age out naturally.
+
 ## Implementation Options
 
 ###Option 1: Build QEMU from Source (Recommended)
