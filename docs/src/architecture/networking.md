@@ -219,16 +219,16 @@ Ethernet II is the standard frame format for modern Ethernet networks. It consis
 ├───────────────────────────────────────────────────────────────┤
 │                      Source MAC Address                       │
 │                         (6 bytes)                             │
-├───────────────────────────────────────────────┬───────────────┤
-│           EtherType (2 bytes)                 │               │
-├───────────────────────────────────────────────┤               │
+├───────────────────────────────┬───────────────────────────────┤
+│        EtherType (2)          │          Payload ...          │
+├───────────────────────────────┴───────────────────────────────┤
 │                                                               │
 │                       Payload Data                            │
 │                    (46-1500 bytes)                            │
 │                                                               │
 ├───────────────────────────────────────────────────────────────┤
-│                    CRC (4 bytes)                              │
-│              (Handled by hardware)                            │
+│                         CRC (4 bytes)                         │
+│                    (Calculated by hardware)                   │
 └───────────────────────────────────────────────────────────────┘
 
 Total: 64-1518 bytes (excluding preamble/SFD)
@@ -404,7 +404,7 @@ ARP is used to map IP addresses to MAC addresses on a local network. When you wa
 │         (0x0001)              │         (0x0800)              │
 ├───────────────┬───────────────┼───────────────────────────────┤
 │  HW Addr Len  │ Proto Addr Len│        Operation (2)          │
-│      (6)      │      (4)      │     (1=Req, 2=Reply)          │
+│      (1)      │      (1)      │     (1=Req, 2=Reply)          │
 ├───────────────┴───────────────┴───────────────────────────────┤
 │                  Sender Hardware Address                      │
 │                      (6 bytes - MAC)                          │
