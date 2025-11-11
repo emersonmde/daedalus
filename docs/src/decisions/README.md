@@ -195,11 +195,19 @@ Examples:
 **Type**: Future-facing design (abstraction for 1 implementation)
 **Demonstrates**: Three options with honest pros/cons, migration path, design pattern comparisons
 
+### ADR-004: Linux Kernel Filesystem Structure
+**Type**: Code organization (maintainability choice)
+**Demonstrates**: Practical benefits prioritized over strict conformance, clear deviation policy
+
+### ADR-005: Multi-Board Support Strategy
+**Type**: Future-facing architecture (multi-platform preparation)
+**Demonstrates**: Hybrid approach reasoning, four alternatives compared, deferred implementation
+
 ## Anti-Patterns to Avoid
 
 ❌ **"Implementation Masquerading as ADR"**
 ```markdown
-# ADR-005: UART Driver Implementation
+# ADR-006: UART Driver Implementation
 ## Decision
 The UART driver uses PL011 registers at 0xFE201000...
 ```

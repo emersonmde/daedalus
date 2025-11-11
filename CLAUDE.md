@@ -5,6 +5,7 @@
 ## Project Essentials
 
 - **Target**: Raspberry Pi 4 Model B only (BCM2711, Cortex-A72)
+  - **Future**: Pi 5 support when QEMU adds BCM2712/RP1 emulation
 - **Language**: Rust 2024, nightly, `#![no_std]` bare-metal
 - **Architecture**: AArch64 (ARMv8-A)
 - **Current State**: Phase 4 in progress - Ethernet driver foundation complete
@@ -77,6 +78,124 @@
 - Anything requiring `std` (obviously)
 - Crates with HAL dependencies for other boards (STM32, nRF, etc.)
 - Overly generic abstractions when direct hardware access is clearer
+
+## Multi-Board Support Strategy
+
+**Current Status**: Pi 4 only ([ADR-001](docs/src/decisions/adr-001-pi-only.md))
+**Future Plan**: Pi 4 + Pi 5 support via runtime hardware detection ([ADR-005](docs/src/decisions/adr-005-multi-board-support-strategy.md))
+
+### Why This Matters Now
+
+Pi 5's RP1 I/O controller requires different driver implementations for network, USB, GPIO, and most peripherals. **Following this pattern now avoids major rewrites later.**
+
+See [ADR-005](docs/src/decisions/adr-005-multi-board-support-strategy.md) for full rationale and alternatives considered.
+
+### Driver Implementation Pattern
+
+**All new drivers MUST follow this pattern:**
+
+#### 1. Hardware Detection
+```rust
+impl MyDriver {
+    /// Returns true if this driver's hardware is present
+    pub fn is_present(&self) -> bool {
+        // Read identifying register (e.g., version/ID register)
+        // Return false if hardware not found or wrong version
+        let version = self.read_reg(VERSION_REG);
+        version == EXPECTED_VERSION
+    }
+}
+```
+
+**Why**: Allows runtime detection of which board we're running on.
+
+#### 2. Trait-Based Interfaces (for multi-implementation categories)
+
+Use traits when a hardware category will have multiple implementations:
+- ✅ `NetworkDevice` trait - ethernet drivers (GENET, RP1, future vendors)
+- ✅ (Future) `UsbHost` trait - USB controllers (DWC2, RP1, XHCI)
+- ✅ (Future) `WirelessDevice` trait - WiFi/BT (Broadcom, future vendors)
+
+```rust
+pub trait NetworkDevice {
+    fn is_present(&self) -> bool;
+    fn init(&mut self) -> Result<(), NetworkError>;
+    fn transmit(&mut self, frame: &[u8]) -> Result<(), NetworkError>;
+    // ...
+}
+
+impl NetworkDevice for GenetController { /* Pi 4 */ }
+impl NetworkDevice for Rp1Ethernet { /* Pi 5 (future) */ }
+```
+
+**When NOT to use traits**: Single-implementation categories where chip-specific naming handles versions:
+- ❌ Timers - `bcm2711.rs` vs `rp1.rs` (version naming sufficient)
+- ❌ Interrupt controllers - `gic_v2.rs` vs `gic_v3.rs` (ARM standard versions)
+
+#### 3. Self-Contained Initialization
+
+Each driver manages its own initialization:
+```rust
+impl MyDriver {
+    pub fn new() -> Self {
+        Self { /* initialize struct */ }
+    }
+
+    pub fn init(&mut self) -> Result<(), Error> {
+        if !self.is_present() {
+            return Err(Error::HardwareNotPresent);
+        }
+        // Initialize hardware
+        Ok(())
+    }
+}
+```
+
+### Future Runtime Detection
+
+When Pi 5 support is added, the pattern enables clean runtime selection:
+
+```rust
+let mut network_device: Box<dyn NetworkDevice> = {
+    if GenetController::new().is_present() {
+        Box::new(GenetController::new())  // Pi 4
+    } else if Rp1Ethernet::new().is_present() {
+        Box::new(Rp1Ethernet::new())      // Pi 5
+    } else {
+        panic!("No network hardware detected")
+    }
+};
+```
+
+**No driver changes needed** - just add new implementations and detection logic.
+
+### Directory Structure for Multi-Implementation Categories
+
+Use deep vendor/type structure when multiple implementations expected:
+
+✅ **Use deep structure**:
+```
+drivers/net/ethernet/broadcom/
+├── genet.rs          # Pi 4
+└── rp1_enet.rs       # Pi 5 (future)
+
+drivers/net/ethernet/intel/    # Future: other vendors
+drivers/net/wireless/broadcom/ # Future: WiFi
+drivers/usb/host/              # Future: USB controllers
+```
+
+✅ **Keep flat structure**:
+```
+drivers/gpio/
+├── bcm2711.rs        # Pi 4
+└── rp1.rs            # Pi 5 (future)
+
+drivers/clocksource/
+├── bcm2711.rs        # Pi 4
+└── rp1.rs            # Pi 5 (future)
+```
+
+**Rule**: Use deep structure for categories expecting **cross-vendor diversity** (ethernet, USB, wireless). Use chip-specific naming for **single-vendor version changes**.
 
 ## Quick Commands
 
