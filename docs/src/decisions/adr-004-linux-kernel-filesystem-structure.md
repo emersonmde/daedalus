@@ -1,8 +1,8 @@
 # ADR-004: Linux Kernel Filesystem Structure
 
-**Status**: Proposed
+**Status**: Accepted
 **Date**: 2025-11-11
-**Decision**: Reorganize source tree to match Linux kernel subsystem conventions.
+**Decision**: Reorganize source tree following Linux kernel subsystem conventions where they improve maintainability, simplicity, and ease of implementation.
 
 ## Context
 
@@ -47,14 +47,16 @@ src/
    - `exceptions.rs` is AArch64-specific but lives in `src/`
    - `allocator.rs` is generic memory management but sits at top level
 
-### Why Linux Kernel Structure?
+### Why Use Linux-Inspired Structure?
 
-Linux kernel is the de facto standard for OS organization:
-- **Developer familiarity**: Most OS developers know Linux layout
-- **Agent familiarity**: LLMs trained extensively on Linux kernel code
-- **Proven scalability**: Structure handles thousands of drivers
-- **Clear conventions**: `drivers/tty/serial/`, `drivers/irqchip/`, etc.
-- **Industry standard**: Other OSes (FreeBSD, NetBSD) use similar patterns
+Linux kernel structure provides a proven foundation that balances multiple goals:
+- **Proven scalability**: Structure handles thousands of drivers across decades
+- **Clear conventions**: Established patterns for subsystem organization
+- **Developer familiarity**: Most OS developers recognize the layout as a bonus
+- **Agent familiarity**: LLMs trained on Linux kernel code navigate similar structures naturally
+- **Maintainability**: Clear boundaries between subsystems reduce cognitive load
+
+We use Linux conventions **where they align with our goals** (maintainability, simplicity, ease of implementation), not as a strict requirement.
 
 ### Alternatives Considered
 
@@ -99,7 +101,7 @@ src/
 
 ## Decision
 
-**Reorganize source tree to match Linux kernel subsystem structure**, using deep nesting and specific naming conventions.
+**Reorganize source tree following Linux kernel subsystem conventions** for improved maintainability and developer familiarity, using deep nesting and specific chip/device naming.
 
 ### Target Structure
 
@@ -173,10 +175,10 @@ src/
 
 ### Naming Conventions
 
-**Follow Linux patterns**:
-- Use specific chip names: `bcm2711.rs`, `amba_pl011.rs` (not generic `gpio.rs`, `uart.rs`)
-- Use underscores in filenames: `gic_v2.rs` (matching Linux `irq-gic.c` → `gic_v2`)
-- Match subsystem names exactly: `irqchip/` not `irq/`, `clocksource/` not `timer/`
+**Use specific, clear names** (happens to align with Linux patterns):
+- Use specific chip/device names: `bcm2711.rs`, `amba_pl011.rs` (not ambiguous `gpio.rs`, `uart.rs`)
+- Use underscores in Rust filenames: `gic_v2.rs` (Rust convention, adapted from Linux `irq-gic.c`)
+- Use descriptive subsystem names: `irqchip/`, `clocksource/` (clarifies purpose better than `irq/`, `timer/`)
 
 ## Rationale
 
@@ -184,29 +186,38 @@ src/
 
 **Objection**: "Rust prefers flat modules, deep nesting is un-idiomatic"
 
-**Counter**:
+**Primary benefit - Better organization**:
+- Prevents cluttered flat directories as driver count grows
+- Clear subsystem boundaries improve maintainability
+- Vendor/chip-specific directories group related code naturally
+- Easy to find where new drivers should go
+
+**Technical compatibility - Rust handles nesting well**:
 - Rust's module system handles deep nesting naturally via `mod.rs` files
 - No impact on compilation, borrow checking, or lifetimes
-- `pub use` re-exports provide clean public API
+- `pub use` re-exports provide clean public API when needed
 - Cargo handles nested modules automatically
 
-**Real-world Rust OS examples**:
+**Real-world Rust OS examples** also choose nested structures:
 - [Redox OS](https://gitlab.redox-os.org/redox-os/kernel): Uses nested driver structure
 - [Theseus OS](https://github.com/theseus-os/Theseus): Uses subsystem directories
 - [Blog OS](https://github.com/phil-opp/blog_os): Small project, but uses `arch/` separation
 
 ### Why Specific Naming (bcm2711.rs vs gpio.rs)?
 
-**Generic naming is ambiguous**:
+**Primary benefit - Eliminates ambiguity**:
+
+Generic names create confusion as the codebase grows:
 - `gpio.rs` - Which GPIO controller? BCM2711? RP2040? Abstract trait?
 - `uart.rs` - PL011? Mini UART? 16550? Multiple implementations?
+- `timer.rs` - System timer? ARM generic timer? Watchdog timer?
 
-**Specific naming is clear**:
-- `bcm2711.rs` - Definitely the BCM2711 GPIO driver
-- `amba_pl011.rs` - Definitely ARM's PL011 UART (used by multiple SoCs)
-- `genet.rs` under `broadcom/` - Broadcom's GENET, not Intel or Realtek
+Specific chip/device names provide immediate clarity:
+- `bcm2711.rs` - Unmistakably the BCM2711 GPIO driver
+- `amba_pl011.rs` - Clearly ARM's PL011 UART (portable to other SoCs using PL011)
+- `genet.rs` under `broadcom/` - Broadcom's GENET MAC, not Intel or Realtek
 
-**Enables multiple implementations**:
+**Secondary benefit - Enables multiple implementations naturally**:
 ```
 drivers/gpio/
 ├── mod.rs
@@ -214,22 +225,31 @@ drivers/gpio/
 └── bcm2835.rs        # Pi 1-3 GPIO (if we add legacy support)
 ```
 
-### Why Match Linux Exactly?
+This also happens to match Linux naming conventions (`gpio-bcm2711.c`, `amba-pl011.c`), providing familiar patterns as a bonus.
 
-**Developer onboarding**: "Where do serial drivers go?" → Same place as Linux: `drivers/tty/serial/`
+### Why Follow Linux Conventions (Not Exact Matching)?
 
-**AI agent effectiveness**: LLMs trained on Linux kernel can:
-- Suggest correct file locations for new drivers
-- Understand context from directory structure
-- Apply Linux patterns to DaedalusOS code
+We adopt Linux naming and organization **where it improves maintainability**, not for strict conformance:
 
-**Documentation reuse**: When documenting interrupt handling:
-- "See Linux `drivers/irqchip/` for comparison"
-- Both codebases use same vocabulary and organization
+**Clear organization principles**: Linux conventions solve real problems:
+- Subsystem boundaries (`drivers/tty/` vs `drivers/net/`) prevent mixing concerns
+- Vendor directories (`ethernet/broadcom/`) naturally scale with multiple vendors
+- Function-based naming (`irqchip/`, `clocksource/`) clarifies purpose
 
-**Future porting**: If porting Linux drivers:
-- Clear 1:1 mapping between source locations
-- Same subsystem structure reduces cognitive load
+**Reduced cognitive load**: Familiar patterns require less mental mapping:
+- "Where do serial drivers go?" → `drivers/tty/serial/` is the obvious answer
+- New contributors don't waste time debating structure
+- Clear precedent for where new code belongs
+
+**Better tooling support**: AI agents and experienced developers benefit:
+- LLMs trained on Linux kernel suggest correct file locations
+- Agents understand context from directory structure without explanation
+- Documentation references Linux subsystems for comparison
+
+**We will deviate from Linux conventions when**:
+- DaedalusOS-specific needs require different structure
+- Rust idioms suggest clearer alternatives
+- Simpler solutions exist for our single-platform scope
 
 ### Why Not embedded-hal Structure?
 
@@ -475,9 +495,9 @@ use crate::drivers::tty::serial::amba_pl011::WRITER;
 
 ## Current State
 
-- ⏳ **Status**: Proposed (awaiting approval)
-- ⏳ **Implementation**: Not started (pending ADR acceptance)
-- ⏳ **Testing**: N/A (no changes yet)
+- ✅ **Status**: Accepted and implemented
+- ✅ **Implementation**: Complete (all files moved, mod.rs created, backward compatibility added)
+- ✅ **Testing**: All 66 tests passing, build successful
 
 ## Questions for Review
 

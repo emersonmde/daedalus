@@ -17,13 +17,16 @@
 
 extern crate alloc;
 
-pub mod allocator;
 pub mod arch;
 pub mod drivers;
-pub mod exceptions;
+pub mod mm;
 pub mod net;
 pub mod qemu;
 pub mod shell;
+
+// Re-exports for backward compatibility and convenience
+pub use arch::aarch64::exceptions;
+pub use mm::allocator;
 
 use core::fmt::{self, Write};
 use core::panic::PanicInfo;

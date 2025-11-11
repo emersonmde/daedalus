@@ -195,22 +195,37 @@ src/
 ├── main.rs              # Binary entry, panic handlers
 ├── lib.rs               # Print macros, test framework, init
 ├── shell.rs             # Interactive REPL
-├── exceptions.rs        # Exception handlers, ESR/FAR decoding
-├── drivers/
-│   ├── uart.rs          # PL011 driver (TX/RX)
-│   ├── gpio.rs          # BCM2711 GPIO driver
-│   ├── genet.rs         # GENET v5 Ethernet MAC
-│   ├── timer.rs         # System timer
-│   └── gic.rs           # GIC-400 interrupt controller
-├── net/
-│   ├── ethernet.rs      # Ethernet frame handling
-│   └── arp.rs           # ARP protocol
 ├── qemu.rs              # Semihosting utilities
-└── arch/aarch64/
-    ├── boot.s           # Assembly entry, core parking
-    ├── exceptions.s     # Exception vector table
-    └── mmu.rs           # MMU/paging configuration
+│
+├── mm/                  # Memory Management
+│   └── allocator.rs     # Heap allocator (bump allocator)
+│
+├── arch/aarch64/        # AArch64 Architecture
+│   ├── boot.s           # Assembly entry, core parking
+│   ├── exceptions.s     # Exception vector table
+│   ├── exceptions.rs    # Exception handlers, ESR/FAR decoding
+│   └── mmu.rs           # MMU/paging configuration
+│
+├── drivers/             # Device Drivers
+│   ├── tty/serial/
+│   │   └── amba_pl011.rs  # PL011 UART driver (TX/RX)
+│   ├── gpio/
+│   │   └── bcm2711.rs   # BCM2711 GPIO driver
+│   ├── net/
+│   │   ├── netdev.rs    # NetworkDevice trait
+│   │   └── ethernet/broadcom/
+│   │       └── genet.rs # GENET v5 Ethernet MAC
+│   ├── irqchip/
+│   │   └── gic_v2.rs    # GIC-400 interrupt controller
+│   └── clocksource/
+│       └── bcm2711.rs   # System timer
+│
+└── net/                 # Network Protocol Stack
+    ├── ethernet.rs      # Ethernet frame handling
+    └── arp.rs           # ARP protocol
 ```
+
+**Note**: See ADR-004 for filesystem structure rationale.
 
 ## Development Workflow
 

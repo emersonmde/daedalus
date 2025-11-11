@@ -1,5 +1,7 @@
 //! AArch64-specific architecture code
 //!
-//! This module contains low-level ARM architecture implementations.
+//! Contains low-level ARM architecture implementations including
+//! MMU configuration and exception handling.
 
+pub mod exceptions;
 pub mod mmu;
