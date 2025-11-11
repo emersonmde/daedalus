@@ -83,7 +83,7 @@ Exception Syndrome Register (ESR_EL1) bits [31:26] contain exception class:
 | 0x2C | Floating point exception |
 | 0x3C | BRK instruction (breakpoint) |
 
-Full list: 40+ exception classes decoded in `src/exceptions.rs`.
+Full list: 40+ exception classes decoded in `src/arch/aarch64/exceptions.rs`.
 
 ## FAR (Fault Address Register)
 
@@ -144,9 +144,9 @@ Runs 25 tests including exception vector installation.
 ## Code References
 
 - Vector table: `src/arch/aarch64/exceptions.s`
-- Context struct: `src/exceptions.rs`
-- ESR decoding: `src/exceptions.rs` (`exception_class_str`)
-- Installation: `src/exceptions.rs` (`install_vector_table`)
+- Context struct: `src/arch/aarch64/exceptions.rs`
+- ESR decoding: `src/arch/aarch64/exceptions.rs` (`exception_class_str`)
+- Installation: `src/arch/aarch64/exceptions.rs` (`install_vector_table`)
 
 ## External References
 

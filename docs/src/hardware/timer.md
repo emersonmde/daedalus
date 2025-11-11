@@ -164,9 +164,9 @@ Measurements taken in QEMU on Apple M1 host. Real hardware may differ slightly.
 
 ### Code References
 
-- **Driver**: `src/drivers/timer.rs`
+- **Driver**: `src/drivers/clocksource/bcm2711.rs`
 - **Shell command**: `src/shell.rs` (uptime command)
-- **Tests**: `src/drivers/timer.rs` (6 tests: counter, delays, monotonicity)
+- **Tests**: `src/drivers/clocksource/bcm2711.rs` (6 tests: counter, delays, monotonicity)
 
 ## Related Documentation
 

@@ -147,7 +147,7 @@ Nested interrupts are **not currently supported** (DAIF.I is set while handling 
 
 ## Implementation Details
 
-**Location**: `src/drivers/gic.rs` (356 lines)
+**Location**: `src/drivers/irqchip/gic_v2.rs` (356 lines)
 
 Key functions:
 - `Gic::init()` - Initialize GIC hardware
@@ -195,9 +195,9 @@ Potential improvements for later milestones:
 
 ## Code References
 
-- **GIC driver**: `src/drivers/gic.rs`
-- **IRQ handler**: `src/exceptions.rs` (`handle_irq()`)
-- **UART interrupt**: `src/drivers/uart.rs` (`handle_interrupt()`)
+- **GIC driver**: `src/drivers/irqchip/gic_v2.rs`
+- **IRQ handler**: `src/arch/aarch64/exceptions.rs` (`handle_irq()`)
+- **UART interrupt**: `src/drivers/tty/serial/amba_pl011.rs` (`handle_interrupt()`)
 - **Initialization**: `src/lib.rs` (`init()`)
 
 ## External References

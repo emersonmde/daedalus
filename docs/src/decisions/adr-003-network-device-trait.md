@@ -124,9 +124,9 @@ Future implementations:
 
 ```
 src/
-├── drivers/
-│   ├── netdev.rs         # Trait definition, NetworkError (NEW)
-│   └── genet.rs          # impl NetworkDevice for GenetController
+├── drivers/net/
+│   ├── netdev.rs                     # Trait definition, NetworkError
+│   └── ethernet/broadcom/genet.rs    # impl NetworkDevice for GenetController
 └── net/
     ├── ethernet.rs       # Ethernet protocol (uses trait in future)
     └── arp.rs            # ARP protocol
@@ -317,7 +317,7 @@ If the abstraction proves unnecessary (e.g., we never add Pi 5 or mock drivers):
 **To remove trait abstraction**:
 1. Change all `use NetworkDevice` to direct `GenetController` usage
 2. Replace trait method calls with direct GENET method calls
-3. Delete `src/drivers/netdev.rs` (~290 lines)
+3. Delete `src/drivers/net/netdev.rs` (~290 lines)
 4. Update documentation to remove trait references
 5. Mark ADR-003 as "Deprecated - Abstraction not needed"
 
@@ -333,7 +333,7 @@ If the abstraction proves unnecessary (e.g., we never add Pi 5 or mock drivers):
 
 ## Current State
 
-- ✅ `NetworkDevice` trait defined (`src/drivers/netdev.rs`)
+- ✅ `NetworkDevice` trait defined (`src/drivers/net/netdev.rs`)
 - ✅ `GenetController` implements trait
 - ✅ 66 unit tests passing (added 1 new test)
 - ✅ Documentation complete
@@ -393,6 +393,6 @@ impl NetworkDevice for Pi5EthernetController {
 
 ### Implementation
 
-- Module: `src/drivers/netdev.rs`
-- Usage: `src/drivers/genet.rs` (NetworkDevice implementation)
-- Tests: `src/drivers/genet.rs::tests::test_network_device_trait`
+- Module: `src/drivers/net/netdev.rs`
+- Usage: `src/drivers/net/ethernet/broadcom/genet.rs` (NetworkDevice implementation)
+- Tests: `src/drivers/net/ethernet/broadcom/genet.rs::tests::test_network_device_trait`

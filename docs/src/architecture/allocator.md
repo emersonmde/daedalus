@@ -18,7 +18,7 @@ This design is ideal for kernel workloads where:
 
 ## Implementation
 
-**Location**: `src/allocator.rs`
+**Location**: `src/mm/allocator.rs`
 
 The `BumpAllocator` struct implements:
 - `GlobalAlloc` trait for Rust's standard allocator interface
@@ -170,7 +170,7 @@ For now, the bump allocator provides a solid foundation for Phase 2 development.
 
 ## References
 
-- **Code**: `src/allocator.rs` (164 lines)
+- **Code**: `src/mm/allocator.rs` (164 lines)
 - **Linker symbols**: `linker.ld` defines `__heap_start` and `__heap_end`
 - **Integration**: `src/lib.rs` - initialization and global allocator registration
 - **Rust allocator API**: [GlobalAlloc trait documentation](https://doc.rust-lang.org/core/alloc/trait.GlobalAlloc.html)

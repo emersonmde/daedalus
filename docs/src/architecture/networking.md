@@ -1,6 +1,6 @@
 # Network Protocol Stack
 
-**Modules**: `src/net/ethernet.rs`, `src/net/arp.rs`, `src/drivers/netdev.rs`
+**Modules**: `src/net/ethernet.rs`, `src/net/arp.rs`, `src/drivers/net/netdev.rs`
 **Status**: Protocol parsing and device abstraction implemented
 **Testing**: 66 unit tests passing (30 protocol + 36 other)
 
@@ -42,7 +42,7 @@ This provides the foundation for future IP/TCP/UDP support via smoltcp.
                  │
 ┌────────────────┴───────────────────────┐
 │      Physical Layer                    │
-│  • GENET MAC Controller                │  ← src/drivers/genet.rs
+│  • GENET MAC Controller                │  ← src/drivers/net/ethernet/broadcom/genet.rs
 │  • BCM54213PE PHY Chip                 │
 └────────────────────────────────────────┘
 ```
@@ -69,7 +69,7 @@ This provides the foundation for future IP/TCP/UDP support via smoltcp.
 
 ## Network Device Abstraction
 
-Module: `src/drivers/netdev.rs`
+Module: `src/drivers/net/netdev.rs`
 
 The `NetworkDevice` trait provides a hardware-independent interface for Ethernet network devices. This abstraction enables:
 
@@ -123,8 +123,8 @@ pub enum NetworkError {
 #### GenetController (Raspberry Pi 4)
 
 ```rust
-use daedalus::drivers::genet::GenetController;
-use daedalus::drivers::netdev::NetworkDevice;
+use daedalus::drivers::net::ethernet::broadcom::genet::GenetController;
+use daedalus::drivers::net::netdev::NetworkDevice;
 
 let mut netdev = GenetController::new();
 
@@ -1012,8 +1012,8 @@ fn save_pcap(frames: &[Vec<u8>], filename: &str) {
 Once frame TX/RX is implemented (Milestone #13):
 
 ```rust
-use daedalus::drivers::netdev::NetworkDevice;
-use daedalus::drivers::genet::GenetController;
+use daedalus::drivers::net::netdev::NetworkDevice;
+use daedalus::drivers::net::ethernet::broadcom::genet::GenetController;
 
 // Initialize networking (works with any NetworkDevice implementation)
 let mut netdev = GenetController::new();

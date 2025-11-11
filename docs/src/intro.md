@@ -73,7 +73,7 @@ cargo objcopy --release -- -O binary kernel8.img
 
 If timing tests become flaky in GitHub Actions or other CI environments, you can enable deterministic timing mode using `QEMU_DETERMINISTIC=1`. This uses QEMU's `-icount` flag to decouple the guest clock from the host, making timing perfectly reproducible at the cost of 10-100x slower execution (disables KVM hardware acceleration).
 
-Current timing tests use 25% tolerance to handle normal CI variability without this flag. See `src/drivers/timer.rs:231` for details.
+Current timing tests use 25% tolerance to handle normal CI variability without this flag. See `src/drivers/clocksource/bcm2711.rs:231` for details.
 
 ## Design Tenets
 

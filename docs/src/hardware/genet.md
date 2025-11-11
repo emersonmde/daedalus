@@ -2,7 +2,7 @@
 
 **Hardware**: Broadcom GENET v5 (Gigabit Ethernet MAC)
 **SoC**: BCM2711 (Raspberry Pi 4)
-**Driver**: `src/drivers/genet.rs`
+**Driver**: `src/drivers/net/ethernet/broadcom/genet.rs`
 **Status**: Hardware detection and PHY management implemented
 
 ---

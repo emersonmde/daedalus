@@ -111,7 +111,7 @@ See `src/lib.rs` for `WRITER` global definition.
 
 ## Code References
 
-- Implementation: `src/drivers/uart.rs`
+- Implementation: `src/drivers/tty/serial/amba_pl011.rs`
 - Print macros: `src/lib.rs` (`print!`, `println!`, `_print`)
 - Shell I/O: `src/shell.rs`
 

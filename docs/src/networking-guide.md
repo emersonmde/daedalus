@@ -14,7 +14,7 @@ This guide provides a complete reference for working with DaedalusOS's network s
 
 | Topic | Documentation | Code |
 |-------|---------------|------|
-| **Hardware** | [GENET Driver](hardware/genet.md) | `src/drivers/genet.rs` |
+| **Hardware** | [GENET Driver](hardware/genet.md) | `src/drivers/net/ethernet/broadcom/genet.rs` |
 | **Protocols** | [Ethernet & ARP](architecture/networking.md) | `src/net/` |
 | **Testing** | This document (below) | `cargo test` |
 | **Integration** | This document (below) | `src/shell.rs` |
@@ -448,7 +448,7 @@ daedalus> eth-diag
 [SKIP] Diagnostics completed (no hardware detected)
 ```
 
-**Implementation**: `src/shell.rs` (line ~200), `src/drivers/genet.rs` (line ~373)
+**Implementation**: `src/shell.rs` (line ~200), `src/drivers/net/ethernet/broadcom/genet.rs` (line ~373)
 
 ### Future Commands (Planned)
 
