@@ -239,6 +239,8 @@ fn print_exception_context(ctx: &ExceptionContext, exc_type: ExceptionType, sour
 // These are called from the exception vector table in exceptions.s
 
 /// Handle exceptions from current EL using SP0.
+// SAFETY: no_mangle required because this function is called by name from assembly (exceptions.s).
+// extern "C" ensures stable ABI. Assembly guarantees: valid ExceptionContext pointer, valid exc_type value.
 #[unsafe(no_mangle)]
 extern "C" fn exception_handler_el1_sp0(ctx: &ExceptionContext, exc_type: u64) {
     print_exception_context(ctx, ExceptionType::from_u64(exc_type), "Current EL (SP0)");
@@ -246,6 +248,8 @@ extern "C" fn exception_handler_el1_sp0(ctx: &ExceptionContext, exc_type: u64) {
 }
 
 /// Handle exceptions from current EL using SPx.
+// SAFETY: no_mangle required because this function is called by name from assembly (exceptions.s).
+// extern "C" ensures stable ABI. Assembly guarantees: valid ExceptionContext pointer, valid exc_type value.
 #[unsafe(no_mangle)]
 extern "C" fn exception_handler_el1_spx(ctx: &ExceptionContext, exc_type: u64) {
     let exc_type = ExceptionType::from_u64(exc_type);
@@ -262,6 +266,8 @@ extern "C" fn exception_handler_el1_spx(ctx: &ExceptionContext, exc_type: u64) {
 }
 
 /// Handle exceptions from lower EL in AArch64 mode.
+// SAFETY: no_mangle required because this function is called by name from assembly (exceptions.s).
+// extern "C" ensures stable ABI. Assembly guarantees: valid ExceptionContext pointer, valid exc_type value.
 #[unsafe(no_mangle)]
 extern "C" fn exception_handler_lower_aa64(ctx: &ExceptionContext, exc_type: u64) {
     print_exception_context(ctx, ExceptionType::from_u64(exc_type), "Lower EL (AArch64)");
@@ -269,6 +275,8 @@ extern "C" fn exception_handler_lower_aa64(ctx: &ExceptionContext, exc_type: u64
 }
 
 /// Handle exceptions from lower EL in AArch32 mode.
+// SAFETY: no_mangle required because this function is called by name from assembly (exceptions.s).
+// extern "C" ensures stable ABI. Assembly guarantees: valid ExceptionContext pointer, valid exc_type value.
 #[unsafe(no_mangle)]
 extern "C" fn exception_handler_lower_aa32(ctx: &ExceptionContext, exc_type: u64) {
     print_exception_context(ctx, ExceptionType::from_u64(exc_type), "Lower EL (AArch32)");
@@ -311,6 +319,12 @@ fn handle_irq() {
 // Exception vector table installation
 //-----------------------------------------------------------------------------
 
+// SAFETY: Linker symbol from exceptions.s marking the base address of the exception vector table.
+// 1. Symbol is defined in src/arch/aarch64/exceptions.s with .align 11 (2KB alignment requirement)
+// 2. Vector table is placed in executable section by linker (valid code address)
+// 3. This is not a real variable, just an address marker - never dereferenced directly
+// 4. Used only to get its address via &exception_vector_table as *const u64 as u64
+// 5. ARM requires VBAR to point to 2KB-aligned exception vectors (enforced by assembler)
 unsafe extern "C" {
     static exception_vector_table: u64;
 }

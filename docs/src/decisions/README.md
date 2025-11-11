@@ -82,15 +82,6 @@ Why this decision over alternatives?
 ### Neutral (optional)
 - Side effect 1
 
-## Reversal Plan
-
-How would we undo this decision if needed?
-- Step 1
-- Step 2
-- Estimated cost: X weeks/effort
-
-**Triggers for reversal**: What would make us reconsider?
-
 ## Related Decisions
 
 - [ADR-XXX: Related Decision](adr-xxx.md) - How it relates
@@ -149,25 +140,7 @@ Good ADRs admit downsides. No decision is perfect.
 (No admission of downsides)
 ```
 
-### 3. Include Reversal Plans
-
-Show you've thought about "what if we're wrong?"
-
-**Good**:
-```markdown
-## Reversal Plan
-
-If multi-architecture support becomes necessary:
-1. Create ADR-00X documenting new scope
-2. Design HAL separating platform code
-3. Restructure: src/platform/{rpi4,x86_64}
-4. Test on both platforms
-
-**Cost estimate**: 2-4 weeks of refactoring.
-**Trigger**: Need to support x86 for CI, or Pi 5 requires different approach.
-```
-
-### 4. Status Lifecycle
+### 3. Status Lifecycle
 
 ```
 Proposed → Accepted → [Deprecated | Superseded]
@@ -180,7 +153,7 @@ Proposed → Accepted → [Deprecated | Superseded]
 
 Update status when circumstances change.
 
-### 5. Link Related ADRs
+### 4. Link Related ADRs
 
 Decisions often build on or conflict with previous ones:
 
@@ -246,13 +219,6 @@ We use Rust.
 2. Trait abstraction - perfect, elegant, future-proof
 ```
 → Be honest about trade-offs.
-
-❌ **"No Reversal Plan"**
-```markdown
-## Consequences
-This is a permanent decision.
-```
-→ Few decisions are truly irreversible. Show you've thought about it.
 
 ## ADR Workflow
 

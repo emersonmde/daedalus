@@ -132,6 +132,8 @@ pub fn init() {
     //    - heap_start < heap_end (guaranteed by linker as noted above)
     //    - Memory range is valid and reserved (linker reserves this region between BSS and stack)
     unsafe {
+        // SAFETY: Linker symbols from linker.ld marking heap region boundaries (not actual variables).
+        // Symbol addresses are valid at link time, used only to get addresses via &symbol as *const _ as usize.
         unsafe extern "C" {
             static __heap_start: u8;
             static __heap_end: u8;
@@ -579,6 +581,8 @@ fn test_allocator_stats() {
 }
 
 #[cfg(test)]
+// SAFETY: no_mangle required because this is the test entry point called by name from boot.s in test mode.
+// extern "C" ensures stable ABI. Assembly caller guarantees same as main: aligned stack, zeroed BSS, EL1/EL2.
 #[unsafe(no_mangle)]
 pub extern "C" fn _start_rust() -> ! {
     init();

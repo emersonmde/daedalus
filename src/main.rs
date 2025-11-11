@@ -13,6 +13,9 @@ use core::panic::PanicInfo;
 use daedalus::println;
 
 /// Rust entry point called from boot.s
+// SAFETY: no_mangle required because this is the entry point called by name from boot.s after CPU initialization.
+// extern "C" ensures stable ABI. Assembly caller (boot.s) guarantees: stack is 16-byte aligned, BSS is zeroed,
+// other cores are parked, MMU is disabled, running at EL1 or EL2, interrupts are masked.
 #[unsafe(no_mangle)]
 pub extern "C" fn _start_rust() -> ! {
     daedalus::init();
