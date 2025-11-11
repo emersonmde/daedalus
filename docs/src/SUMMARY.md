@@ -40,6 +40,8 @@
 - [ADR-001: Raspberry Pi 4 Only](decisions/adr-001-pi-only.md)
 - [ADR-002: QEMU 9.0+ Requirement](decisions/adr-002-qemu-9.md)
 - [ADR-003: Network Device Abstraction](decisions/adr-003-network-device-trait.md)
+- [ADR-004: Linux Kernel Filesystem Structure](decisions/adr-004-linux-kernel-filesystem-structure.md)
+- [ADR-005: Multi-Board Support Strategy](decisions/adr-005-multi-board-support-strategy.md)
 
 ---
 
