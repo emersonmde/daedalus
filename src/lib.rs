@@ -75,6 +75,7 @@ fn enable_irqs() {
     unsafe {
         core::arch::asm!(
             "msr daifclr, #2", // Clear I bit (bit 1): 0b0010 = IRQ unmask
+            "isb",             // Synchronize - ensure DAIF change is visible
             options(nomem, nostack)
         );
     }

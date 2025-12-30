@@ -29,6 +29,7 @@ const GICC_BASE: usize = 0xFF842000;
 mod gicd_offsets {
     pub const CTLR: usize = 0x000; // Distributor Control Register
     pub const TYPER: usize = 0x004; // Interrupt Controller Type Register
+    pub const IGROUPR: usize = 0x080; // Interrupt Group Registers (0x080-0x0FC)
     pub const ISENABLER: usize = 0x100; // Interrupt Set-Enable Registers (0x100-0x17C)
     pub const ICENABLER: usize = 0x180; // Interrupt Clear-Enable Registers (0x180-0x1FC)
     pub const ISPENDR: usize = 0x200; // Interrupt Set-Pending Registers (0x200-0x27C)
@@ -124,10 +125,12 @@ impl Gic {
         let num_interrupts = 32 * (it_lines_number + 1);
 
         // Configure all SPIs (ID >= 32) as:
+        // - Group: Group 0 (secure, for secure EL1)
         // - Priority: 0xA0 (medium priority)
         // - Target: CPU 0 (0x01)
         // - Configuration: Level-sensitive (0b00)
         for int_id in 32..num_interrupts {
+            self.set_group(int_id, 0); // Group 0 = secure
             self.set_priority(int_id, 0xA0);
             self.set_target(int_id, 0x01); // Route to CPU 0
             self.set_config(int_id, int_cfg::LEVEL_SENSITIVE);
@@ -229,6 +232,28 @@ impl Gic {
         unsafe {
             let addr = (self.gicd_base + reg_offset) as *mut u8;
             write_volatile(addr, priority);
+        }
+    }
+
+    /// Set interrupt group (0 = secure, 1 = non-secure).
+    ///
+    /// # Arguments
+    /// * `int_id` - Interrupt ID
+    /// * `group` - Group number (0 for Group 0/secure, 1 for Group 1/non-secure)
+    fn set_group(&self, int_id: u32, group: u32) {
+        let reg_offset = gicd_offsets::IGROUPR + ((int_id / 32) * 4) as usize;
+        let bit = 1u32 << (int_id % 32);
+
+        // SAFETY: Read-modify-write to GICD_IGROUPR is safe
+        unsafe {
+            let addr = (self.gicd_base + reg_offset) as *mut u32;
+            let mut val = read_volatile(addr);
+            if group == 1 {
+                val |= bit; // Set bit for Group 1 (non-secure)
+            } else {
+                val &= !bit; // Clear bit for Group 0 (secure)
+            }
+            write_volatile(addr, val);
         }
     }
 

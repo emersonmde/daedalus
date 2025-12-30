@@ -36,11 +36,15 @@ mod pl011_flags {
     pub const IMSC_RTIM: u32 = 1 << 6; // Receive timeout interrupt mask
 
     // Masked Interrupt Status Register (MIS) - Section 3.3.12
+    #[allow(dead_code)]
     pub const MIS_RXMIS: u32 = 1 << 4; // Receive masked interrupt status
+    #[allow(dead_code)]
     pub const MIS_RTMIS: u32 = 1 << 6; // Receive timeout masked interrupt status
 
     // Interrupt Clear Register (ICR) - Section 3.3.13
+    #[allow(dead_code)]
     pub const ICR_RXIC: u32 = 1 << 4; // Receive interrupt clear
+    #[allow(dead_code)]
     pub const ICR_RTIC: u32 = 1 << 6; // Receive timeout interrupt clear
     pub const ICR_ALL: u32 = 0x7FF; // Clear all interrupts
 }
@@ -210,30 +214,22 @@ impl fmt::Write for UartWriter {
 /// Called by the IRQ handler when a UART interrupt fires.
 /// Reads all available bytes from the FIFO and clears the interrupt.
 pub fn handle_interrupt() {
-    let mut writer = WRITER.lock();
+    // TEMPORARY: Simplified interrupt handler to avoid WRITER deadlock.
+    // The shell's read_byte() polls while holding WRITER lock, so we can't acquire it here.
+    // Just clear the interrupt and let the polling code read the data from the FIFO.
+    //
+    // TODO: Implement proper ring buffer for interrupt-driven RX:
+    // - Interrupt handler: Read byte from FIFO → store in ring buffer → clear interrupt
+    // - Shell: Read from ring buffer (lock-free or separate lock)
+    use core::ptr::write_volatile;
+    const UART_BASE: usize = 0xFE201000;
+    const ICR_OFFSET: usize = 0x44; // Interrupt Clear Register
 
-    // Check interrupt status
-    let mis = writer.registers.mis.read();
-
-    // Handle receive interrupt or timeout
-    if (mis & (pl011_flags::MIS_RXMIS | pl011_flags::MIS_RTMIS)) != 0 {
-        // Read all available bytes from FIFO
-        while (writer.registers.fr.read() & pl011_flags::FR_RXFE) == 0 {
-            let byte = (writer.registers.dr.read() & pl011_flags::DR_DATA_MASK) as u8;
-
-            // For now, just echo the received character
-            // In the future, this could add to a buffer for the shell to read
-            if byte == b'\r' {
-                writer.write_byte(b'\n');
-            } else {
-                writer.write_byte(byte);
-            }
-        }
-
-        // Clear the interrupt
-        writer
-            .registers
-            .icr
-            .write(pl011_flags::ICR_RXIC | pl011_flags::ICR_RTIC);
+    // SAFETY: Writing to UART ICR register is safe because:
+    // 1. UART_BASE is the correct MMIO address for PL011 on BCM2711
+    // 2. ICR is write-only, writing 1s clears corresponding interrupt bits
+    // 3. Bits 4 (RXIC) and 6 (RTIC) clear RX and timeout interrupts
+    unsafe {
+        write_volatile((UART_BASE + ICR_OFFSET) as *mut u32, (1 << 4) | (1 << 6));
     }
 }

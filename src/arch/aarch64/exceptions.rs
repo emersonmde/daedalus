@@ -291,27 +291,32 @@ extern "C" fn exception_handler_lower_aa32(ctx: &ExceptionContext, exc_type: u64
 /// the appropriate peripheral handler.
 fn handle_irq() {
     // Acknowledge the interrupt and get its ID
-    let gic = crate::drivers::gic::GIC.lock();
-    let int_id = gic.acknowledge_interrupt();
+    // Drop the lock immediately after acknowledging
+    let int_id = {
+        let gic = crate::drivers::gic::GIC.lock();
+        gic.acknowledge_interrupt()
+    }; // GIC lock dropped here
 
-    // Spurious interrupt check
+    // Spurious interrupt check (ID 1023 means no pending interrupt)
     if int_id == 1023 {
-        println!("Spurious interrupt");
         return;
     }
 
     // Route to appropriate handler based on interrupt ID
+    // This runs without holding the GIC lock, allowing other code to query GIC if needed
     match int_id {
         crate::drivers::gic::irq::UART0 => {
             // UART0 interrupt
             crate::drivers::uart::handle_interrupt();
         }
         _ => {
-            println!("Unhandled interrupt ID: {}", int_id);
+            // Unknown interrupt - ignore silently
         }
     }
 
     // Signal end of interrupt to GIC
+    // Re-acquire the lock just for the EOI write
+    let gic = crate::drivers::gic::GIC.lock();
     gic.end_of_interrupt(int_id);
 }
 
