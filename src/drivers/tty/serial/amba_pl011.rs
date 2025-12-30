@@ -107,32 +107,62 @@ impl UartWriter {
     /// Initialize the UART hardware
     ///
     /// Configures for 115200 baud, 8N1, FIFO enabled
-    /// Based on 54 MHz UART clock (IBRD=29, FBRD=19)
+    /// Based on 48 MHz UART clock (IBRD=26, FBRD=3) for Pi 4 hardware
     pub fn init(&mut self) {
-        // Disable UART
+        // Small delay helper for hardware stabilization
+        fn small_delay() {
+            for _ in 0..150 {
+                unsafe { core::arch::asm!("nop", options(nomem, nostack)) };
+            }
+        }
+
+        // Configure GPIO 14 (TXD0) and GPIO 15 (RXD0) for UART0 (Alt0 function)
+        // Required on real hardware - firmware doesn't always set this up
+        // SAFETY: Writing to GPIO registers is safe because:
+        // 1. GPFSEL1 address is correct for BCM2711
+        // 2. We're only modifying GPIO 14/15 function bits, preserving others
+        // 3. Alt0 is the correct function for UART0 on these pins
+        unsafe {
+            use core::ptr::{read_volatile, write_volatile};
+            const GPFSEL1: usize = 0xFE200004; // GPIO Function Select 1
+
+            let mut fsel = read_volatile(GPFSEL1 as *const u32);
+            fsel &= !((0b111 << 12) | (0b111 << 15)); // Clear GPIO 14 and 15 function bits
+            fsel |= (0b100 << 12) | (0b100 << 15); // Set both to Alt0
+            write_volatile(GPFSEL1 as *mut u32, fsel);
+        }
+
+        // Disable UART during configuration
         self.registers.cr.write(0);
+        small_delay(); // Hardware needs time to disable
 
         // Mask all interrupts
         self.registers.imsc.write(0);
 
         // Clear all pending interrupts
         self.registers.icr.write(pl011_flags::ICR_ALL);
+        small_delay(); // Let FIFOs flush
 
-        // Set baud rate divisors for 115200 @ 54 MHz
-        // Divisor = 54,000,000 / (16 * 115200) = 29.296875
-        // Integer part = 29, Fractional part = 0.296875 * 64 = 19
-        self.registers.ibrd.write(29);
-        self.registers.fbrd.write(19);
+        // Set baud rate divisors for 115200 @ 48 MHz (Pi 4 hardware clock)
+        // QEMU uses 54 MHz, but real hardware uses 48 MHz UART clock
+        // Divisor = 48,000,000 / (16 * 115200) = 26.0416...
+        // Integer part = 26, Fractional part = 0.0416 * 64 + 0.5 = 3
+        self.registers.ibrd.write(26);
+        self.registers.fbrd.write(3);
 
         // Configure line control: 8 bits, FIFO enabled, no parity
         self.registers
             .lcrh
             .write(pl011_flags::LCRH_FEN | pl011_flags::LCRH_WLEN_8BIT);
 
+        small_delay(); // Stabilize before enabling
+
         // Enable UART, TX, and RX
         self.registers
             .cr
             .write(pl011_flags::CR_UARTEN | pl011_flags::CR_TXE | pl011_flags::CR_RXE);
+
+        small_delay(); // Let UART stabilize after enabling
 
         self.initialized = true;
     }
