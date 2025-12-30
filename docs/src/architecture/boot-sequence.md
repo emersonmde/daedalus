@@ -23,10 +23,10 @@ The Raspberry Pi 4 firmware (start4.elf) performs initial hardware setup:
 - Data and instruction caches disabled
 - Interrupts masked (DAIF bits set - D, A, I, F all masked)
 - Stack pointer undefined (must be set by boot code)
-- Exception level: EL2 (QEMU) or EL1 (real hardware)
+- Exception level: **EL2** (both QEMU and real hardware boot at EL2)
 - All cores running (core 0 continues, cores 1-3 must be parked)
 
-**IMPORTANT**: QEMU boots at EL2, real Pi 4 hardware boots at EL1. This affects which system registers are accessible.
+**IMPORTANT**: The boot stub immediately drops from EL2 to EL1 before jumping to Rust. This ensures atomic instructions and spin locks work correctly on both QEMU and hardware.
 
 ## Stage 2: Assembly Stub (boot.s)
 
@@ -43,21 +43,67 @@ _start:
     and x0, x0, #0xFF        // Extract Aff0 field (core number)
     cbnz x0, park_core       // Park non-zero cores
 
-    // 2. Set up stack
+primary_core:
+    // 2. Drop from EL2 to EL1 if currently at EL2
+    mrs x0, CurrentEL
+    and x0, x0, #0xC         // Bits [3:2] contain EL
+    cmp x0, #8               // EL2 = 0b10 << 2 = 8
+    b.ne setup_stack         // If not EL2, skip transition
+
+    // Initialize EL1 system registers (have UNKNOWN values before first entry)
+    // Reference: ARM Trusted Firmware lib/el3_runtime/aarch64/context_mgmt.c
+
+    // SCTLR_EL1: Set RES1 bits, MMU/caches disabled
+    ldr x0, =0x30D00800
+    msr sctlr_el1, x0
+
+    // Initialize MMU registers to safe disabled state
+    msr tcr_el1, xzr
+    msr mair_el1, xzr
+    msr ttbr0_el1, xzr
+    msr ttbr1_el1, xzr
+
+    // Enable FP/SIMD at EL1 (CPACR_EL1.FPEN = 0b11)
+    // LLVM may use SIMD for memory operations
+    mov x0, #(0b11 << 20)
+    msr cpacr_el1, x0
+
+    // Initialize exception vector table
+    ldr x0, =exception_vector_table
+    msr vbar_el1, x0
+    isb
+
+    // Configure EL1 execution state
+    mov x0, #(1 << 31)       // RW bit: EL1 is AArch64
+    msr hcr_el2, x0
+
+    // Set exception level and mask interrupts
+    mov x0, #0x3C5           // EL1h mode, all interrupts masked
+    msr spsr_el2, x0
+
+    // Set return address to setup_stack
+    adr x0, setup_stack
+    msr elr_el2, x0
+
+    // Exception return to EL1
+    eret
+
+setup_stack:
+    // 3. Set up stack
     ldr x0, =_stack_start
     mov sp, x0
 
-    // 3. Clear BSS section
+    // 4. Clear BSS section
     ldr x0, =__bss_start
     ldr x1, =__bss_end
 clear_bss:
     cmp x0, x1
-    b.hs clear_bss_done
+    b.ge clear_bss_done
     str xzr, [x0], #8
     b clear_bss
 clear_bss_done:
 
-    // 4. Jump to Rust
+    // 5. Jump to Rust
     bl _start_rust
 
     // Should never return
@@ -207,19 +253,24 @@ L2_TABLE_MMIO:  4 KB (maps 3-4 GB)
 
 **Note**: After MMU initialization, all addresses are virtual, but identity-mapped (VA = PA).
 
-## Exception Level Differences
+## Exception Level Transition (EL2 → EL1)
 
-### QEMU Behavior
-- Boots at EL2 (hypervisor mode)
-- `ELR_EL1`, `SPSR_EL1` may be inaccessible/zero
-- Use EL2 registers when needed
+Both QEMU and Pi 4 hardware boot at **EL2** (hypervisor mode). The boot stub transitions to **EL1** (kernel mode) before jumping to Rust for the following reasons:
 
-### Real Hardware Behavior
-- Boots at EL1 (kernel mode)
-- EL1 system registers fully accessible
-- Exception handling works as documented
+**Why EL1?**
+1. **Atomic instructions work correctly** - At EL2, exclusive load/store semantics are undefined without proper hypervisor setup
+2. **Spin locks function** - Rust's `spin::Mutex` (used throughout the kernel) requires working atomics
+3. **Standard OS privilege level** - Linux and other OSes run at EL1, not EL2
+4. **Simpler exception handling** - No need to manage both EL1 and EL2 exception vectors
 
-This discrepancy is documented as tech debt in exception handling code.
+**EL1 Register Initialization:**
+The boot stub initializes all EL1 system registers before the `ERET` instruction:
+- **SCTLR_EL1**: RES1 bits set (0x30D00800 from ARM Trusted Firmware)
+- **TCR_EL1, MAIR_EL1, TTBR0_EL1, TTBR1_EL1**: Zeroed (safe disabled state)
+- **CPACR_EL1**: FP/SIMD enabled (LLVM uses SIMD for memory operations)
+- **VBAR_EL1**: Exception vector table pointer
+
+Without this initialization, EL1 registers have **UNKNOWN** values after the first entry to EL1, which can cause crashes.
 
 ## Verification
 
@@ -234,7 +285,7 @@ DaedalusOS v0.1.0 booting...
 [  OK  ] IRQs enabled (interrupt-driven I/O active)
 [  OK  ] Heap allocator initialized (8 MB)
 
-Boot complete. Running at EL2.
+Boot complete. Running at EL1.
 
 Welcome to DaedalusOS!
 Type 'help' for available commands.
@@ -261,15 +312,27 @@ On QEMU with KVM acceleration, boot typically completes in <100ms. Real hardware
 ## Boot Sequence Diagram
 
 ```
-Firmware (start4.elf)
+Firmware (start4.elf) @ EL2
   ↓
 Load kernel8.img @ 0x80000
   ↓
-Jump to _start (boot.s)
+Jump to _start (boot.s) @ EL2
   ├─→ Core 1-3: park in WFE loop
   └─→ Core 0: continue
        ↓
-    Set SP = _stack_start
+    Check CurrentEL (should be EL2)
+       ↓
+    Initialize EL1 system registers:
+       ├─→ SCTLR_EL1 (RES1 bits)
+       ├─→ TCR_EL1, MAIR_EL1, TTBR0_EL1, TTBR1_EL1 (zero)
+       ├─→ CPACR_EL1 (enable FP/SIMD)
+       └─→ VBAR_EL1 (exception vectors)
+       ↓
+    Configure HCR_EL2, SPSR_EL2, ELR_EL2
+       ↓
+    ERET to EL1 (drop privilege level)
+       ↓
+    Set SP = _stack_start @ EL1
        ↓
     Clear BSS section
        ↓
@@ -277,8 +340,8 @@ Jump to _start (boot.s)
        ↓
     Call daedalus::init()
        ├─→ MMU init (enable virtual memory + caches)
-       ├─→ UART init (take control from firmware)
-       ├─→ Exception vectors (install VBAR_ELx)
+       ├─→ UART init (configure GPIO + baud rate)
+       ├─→ Exception vectors (already installed)
        ├─→ GIC init (configure interrupt controller)
        ├─→ IRQ enable (unmask interrupts)
        └─→ Heap init (setup allocator)

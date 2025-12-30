@@ -7,9 +7,10 @@ ARM PrimeCell UART (PL011) driver reference for Raspberry Pi 4.
 | Parameter | Value | Notes |
 |-----------|-------|-------|
 | Base Address | `0xFE201000` | See [Memory Map](memory-map.md) |
-| Clock Frequency | 54 MHz | **Pi 4 specific** (Pi 3 uses 48 MHz) |
+| Clock Frequency | 48 MHz | **Pi 4 hardware** (QEMU uses 54 MHz) |
 | Target Baud Rate | 115200 | Standard serial console speed |
 | Data Format | 8N1 | 8 data bits, no parity, 1 stop bit |
+| GPIO Pins | 14 (TXD0), 15 (RXD0) | Must be configured to Alt0 function |
 
 ## Register Map
 
@@ -24,34 +25,73 @@ ARM PrimeCell UART (PL011) driver reference for Raspberry Pi 4.
 | IMSC | `0x38` | Interrupt Mask | Mask interrupt sources |
 | ICR | `0x44` | Interrupt Clear | Clear pending interrupts |
 
+## GPIO Configuration (Required on Hardware)
+
+Pi 4 firmware doesn't always configure GPIO pins for UART. The driver must explicitly set GPIO 14 and 15 to Alt0 function:
+
+```rust
+// Configure GPIO 14 (TXD0) and 15 (RXD0) for UART0
+const GPFSEL1: usize = 0xFE200004;  // GPIO Function Select 1
+
+let mut fsel = read_volatile(GPFSEL1 as *const u32);
+fsel &= !((0b111 << 12) | (0b111 << 15));  // Clear function bits
+fsel |= (0b100 << 12) | (0b100 << 15);     // Set to Alt0
+write_volatile(GPFSEL1 as *mut u32, fsel);
+```
+
+**GPIO Function Select Encoding:**
+- Bits 12-14: GPIO 14 function (000=Input, 001=Output, 100=Alt0/UART0_TXD)
+- Bits 15-17: GPIO 15 function (000=Input, 001=Output, 100=Alt0/UART0_RXD)
+
 ## Initialization Sequence
 
 ```rust
-// 1. Disable UART
-UART_CR = 0x0000;
+// 1. Configure GPIO pins (see above)
 
-// 2. Mask all interrupts
+// 2. Disable UART during configuration
+UART_CR = 0x0000;
+small_delay();  // Hardware needs time to disable
+
+// 3. Mask all interrupts
 UART_IMSC = 0x0000;
 
-// 3. Clear pending interrupts
+// 4. Clear pending interrupts
 UART_ICR = 0x07FF;
+small_delay();  // Let FIFOs flush
 
-// 4. Calculate and set baud rate divisors
-// Formula: Clock / (16 × BaudRate) = 54000000 / (16 × 115200) = 29.296875
-UART_IBRD = 29;      // Integer part
-UART_FBRD = 19;      // Fractional: int(0.296875 × 64 + 0.5)
+// 5. Calculate and set baud rate divisors
+// Formula: Clock / (16 × BaudRate) = 48000000 / (16 × 115200) = 26.0416...
+UART_IBRD = 26;      // Integer part
+UART_FBRD = 3;       // Fractional: int(0.0416 × 64 + 0.5)
 
-// 5. Configure line control (8N1, enable FIFO)
+// 6. Configure line control (8N1, enable FIFO)
 UART_LCRH = (1 << 4) | (1 << 5) | (1 << 6);  // 0x70
 // Bit 4: Enable FIFOs
 // Bits 5-6: Word length = 8 bits
 
-// 6. Enable UART, transmitter, receiver
+small_delay();  // Stabilize before enabling
+
+// 7. Enable UART, transmitter, receiver
 UART_CR = (1 << 0) | (1 << 8) | (1 << 9);  // 0x301
 // Bit 0: UART enable
 // Bit 8: Transmit enable
 // Bit 9: Receive enable
+
+small_delay();  // Let UART stabilize after enabling
 ```
+
+**Hardware Stabilization Delays:**
+Real hardware requires small delays between configuration steps. A simple delay of ~150 NOPs is sufficient:
+
+```rust
+fn small_delay() {
+    for _ in 0..150 {
+        unsafe { core::arch::asm!("nop", options(nomem, nostack)) };
+    }
+}
+```
+
+These delays are harmless on QEMU but critical for hardware stability.
 
 ## Transmit (Polling Mode)
 
