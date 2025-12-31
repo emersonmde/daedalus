@@ -4,8 +4,10 @@
 //! Ethernet frame handling and ARP (Address Resolution Protocol).
 
 pub mod arp;
+pub mod arp_diag;
 pub mod ethernet;
 
 // Re-export commonly used types
 pub use arp::{ArpOperation, ArpPacket};
+pub use arp_diag::run_arp_probe_diagnostic;
 pub use ethernet::{ETHERTYPE_ARP, ETHERTYPE_IPV4, EthernetFrame, MacAddress};

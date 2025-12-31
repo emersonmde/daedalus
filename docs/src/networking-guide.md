@@ -236,8 +236,8 @@ if !genet.is_present() {
 }
 
 // Get hardware version
-let version = genet.get_version();
-println!("GENET version: {:#010X}", version);
+let (major, minor) = genet.get_version();
+println!("GENET hardware version: {}.{}", major, minor);
 ```
 
 ### MDIO Operations
@@ -408,13 +408,15 @@ Run comprehensive hardware diagnostics.
 daedalus> eth-diag
 ```
 
-**Output on Real Pi 4**:
+**Output on Real Pi 4** (with ethernet cable plugged in):
 ```
 [DIAG] Ethernet Hardware Diagnostics
 [DIAG] ================================
 [DIAG] Step 1: GENET Controller Detection
 [DIAG]   Reading SYS_REV_CTRL @ 0xFD580000...
-[PASS]   GENET v5.2.16 detected (version: 0x00050210)
+[DIAG]   Raw register value: 0x06000000
+[PASS]   GENET hardware v6.0 detected (GENET v5 IP block)
+[PASS]   Register: 0x06000000
 
 [DIAG] Step 2: PHY Detection
 [DIAG]   Scanning MDIO address 1...
@@ -435,15 +437,17 @@ daedalus> eth-diag
 
 [PASS] ================================
 [PASS] Hardware diagnostics complete!
-[PASS] GENET v5 and BCM54213PE PHY detected
+[PASS] GENET hardware v6.0 (GENET v5 IP) and BCM54213PE PHY detected
 ```
 
-**Output in QEMU**:
+**Output in QEMU** (no ethernet hardware emulated):
 ```
 [DIAG] Ethernet Hardware Diagnostics
 [DIAG] ================================
 [DIAG] Step 1: GENET Controller Detection
 [DIAG]   Reading SYS_REV_CTRL @ 0xFD580000...
+[DIAG]   Raw register value: 0x00000000
+[WARN]   Unexpected version: 0.0 (expected 6.x for GENET v5)
 [INFO]   Hardware not present (running in QEMU?)
 [SKIP] Diagnostics completed (no hardware detected)
 ```
@@ -809,7 +813,8 @@ pub const ETHERTYPE_IPV6: u16 = 0x86DD;
 impl GenetController {
     pub fn new() -> Self;
     pub fn is_present(&self) -> bool;
-    pub fn get_version(&self) -> u32;
+    pub fn get_version(&self) -> (u8, u8);        // Returns (major, minor)
+    pub fn get_version_raw(&self) -> u32;         // Returns raw SYS_REV_CTRL value
     pub fn mdio_read(&self, phy_addr: u8, reg_addr: u8) -> Option<u16>;
     pub fn mdio_write(&self, phy_addr: u8, reg_addr: u8, value: u16) -> bool;
     pub fn read_phy_id(&self) -> Option<u32>;

@@ -52,6 +52,71 @@ The GENET (Gigabit Ethernet) controller is an integrated MAC (Media Access Contr
                     RJ45 Ethernet Port
 ```
 
+### Understanding "MAC" - Two Different Meanings
+
+**Terminology Confusion**: "MAC" has two completely different meanings in networking:
+
+| Term | Meaning | What It Is |
+|------|---------|------------|
+| **MAC Address** | Media Access Control Address | 48-bit hardware address (e.g., `B8:27:EB:12:34:56`) |
+| **MAC Chip** | Media Access Controller | Physical chip that implements Layer 2 ethernet protocol |
+
+When this document refers to "GENET MAC" or "MAC controller," it means the **controller chip**, not the address!
+
+### PHY vs MAC: The Two-Chip Architecture
+
+Modern ethernet requires **two separate chips** with different responsibilities:
+
+#### MAC Chip (GENET) - Inside BCM2711 SoC
+- **Location**: Integrated into the CPU die
+- **Layer**: OSI Layer 2 (Data Link)
+- **Works with**: Digital signals (bits)
+- **Responsibilities**:
+  - Build/parse ethernet frames (14-byte header)
+  - Add/check CRC-32 (only CRC - IP/TCP checksums are software!)
+  - MAC address filtering (accept frames for our address)
+  - DMA to/from system memory
+  - Send/receive bits to/from PHY via RGMII bus
+
+#### PHY Chip (BCM54213PE) - External on Pi 4 Board
+- **Location**: Separate chip on the board (not in SoC)
+- **Layer**: OSI Layer 1 (Physical)
+- **Works with**: Analog signals (voltages on copper wire)
+- **Responsibilities**:
+  - Convert digital bits ↔ electrical signals
+  - Auto-negotiation (determine speed/duplex with partner)
+  - Link detection (is cable plugged in?)
+  - Signal encoding (1000BASE-T, 100BASE-TX, etc.)
+  - Cable equalization, echo cancellation
+
+#### How They Communicate
+
+**Data Path (RGMII)**: 12-wire parallel bus transfers packet bits
+- 4-bit TX data, 4-bit RX data, clocks, control signals
+- 125 MHz for Gigabit (1000 Mbps)
+- Carries actual ethernet frame data
+
+**Management Path (MDIO)**: 2-wire serial bus for PHY configuration
+- MDC (clock), MDIO (data)
+- ~1 MHz, slow but sufficient for configuration
+- Read PHY ID, configure speed, check link status
+
+#### What the Driver Actually Does
+
+**95% of driver code** = MAC chip (GENET)
+- Configure DMA rings
+- Build ethernet frames (header + payload)
+- Enable TX/RX
+- Handle interrupts
+- Manage buffers
+
+**5% of driver code** = PHY chip (BCM54213PE)
+- Reset PHY
+- Enable auto-negotiation
+- Read link status
+
+The PHY mostly "just works" once configured. The MAC is where driver complexity lives.
+
 ### Key Features
 
 - **MAC Layer**: Handles frame encapsulation, CRC, and media access control
@@ -109,14 +174,29 @@ System revision control register. Contains version information.
 
 **Format**:
 ```
-Bits [31:16]: Major version (0x0005 for GENET v5)
-Bits [15:8]:  Minor version
-Bits [7:0]:   Patch version
+Bits [31:28]: Reserved
+Bits [27:24]: Major version (4 bits)
+Bits [23:20]: Reserved
+Bits [19:16]: Minor version (4 bits)
+Bits [15:0]:  Reserved
 ```
 
-**Example**: `0x00050210` = GENET v5.2.16
+**⚠️ CRITICAL VERSION QUIRK**: The BCM2711 GENET hardware reports major version **6** (not 5), which corresponds to the GENET v5 IP block. This naming inconsistency exists across all drivers:
+- **Hardware register value**: `0x06000000` (major=6, minor=0)
+- **IP block name**: GENET v5
+- **Linux enum**: `GENET_V5 = 5`
+- **U-Boot validation**: Only accepts major version 6
 
-**Usage**: Read to verify GENET v5 is present. The `is_present()` function checks that bits [31:16] == 0x0005.
+**Examples**:
+- `0x06000000` = GENET hardware v6.0 (GENET v5 IP block) ← **Raspberry Pi 4**
+- `0x05020000` = GENET hardware v5.2 (GENET v4 IP block)
+
+**Usage**: The `is_present()` function checks that bits [27:24] == 6 for BCM2711.
+
+**Sources**:
+- U-Boot: `major = (reg >> 24) & 0x0f; if (major != 6) reject;`
+- Linux: Maps hardware version 6 → `GENET_V5` enum
+- EDK2: `SYS_REV_MAJOR = BIT27|BIT26|BIT25|BIT24`
 
 ---
 
@@ -590,12 +670,16 @@ START
 
 The `diagnostic()` function performs a comprehensive hardware check. Expected output on real Pi 4:
 
+### With Ethernet Cable Unplugged
+
 ```
 [DIAG] Ethernet Hardware Diagnostics
 [DIAG] ================================
 [DIAG] Step 1: GENET Controller Detection
 [DIAG]   Reading SYS_REV_CTRL @ 0xFD580000...
-[PASS]   GENET v5.2.16 detected (version: 0x00050210)
+[DIAG]   Raw register value: 0x06000000
+[PASS]   GENET hardware v6.0 detected (GENET v5 IP block)
+[PASS]   Register: 0x06000000
 
 [DIAG] Step 2: PHY Detection
 [DIAG]   Scanning MDIO address 1...
@@ -608,15 +692,30 @@ The `diagnostic()` function performs a comprehensive hardware check. Expected ou
 [DIAG] Step 3: PHY Status
 [DIAG]   Reading BMSR (Basic Mode Status Register)...
 [DIAG]     BMSR: 0x7949
-[DIAG]       Link status: UP
-[DIAG]       Auto-negotiation: COMPLETE
+[DIAG]       Link status: DOWN
+[DIAG]       Auto-negotiation: IN PROGRESS
 [DIAG]   Reading BMCR (Basic Mode Control Register)...
 [DIAG]     BMCR: 0x1140
 [DIAG]       Auto-negotiation: ENABLED
 
 [PASS] ================================
 [PASS] Hardware diagnostics complete!
-[PASS] GENET v5 and BCM54213PE PHY detected
+[PASS] GENET hardware v6.0 (GENET v5 IP) and BCM54213PE PHY detected
+```
+
+**Note**: Link status shows DOWN when no ethernet cable is plugged in. This is normal - plug in a cable to see "Link status: UP" and "Auto-negotiation: COMPLETE".
+
+### In QEMU
+
+```
+[DIAG] Ethernet Hardware Diagnostics
+[DIAG] ================================
+[DIAG] Step 1: GENET Controller Detection
+[DIAG]   Reading SYS_REV_CTRL @ 0xFD580000...
+[DIAG]   Raw register value: 0x00000000
+[WARN]   Unexpected version: 0.0 (expected 6.x for GENET v5)
+[INFO]   Hardware not present (running in QEMU?)
+[SKIP] Diagnostics completed (no hardware detected)
 ```
 
 ---

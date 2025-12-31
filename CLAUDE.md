@@ -236,7 +236,8 @@ All documentation is in **`docs/src/`** organized as reference wiki (not linear)
 - **GPIO**: `docs/src/hardware/gpio.md` (BCM2711 GPIO driver)
 - **Timer**: `docs/src/hardware/timer.md` (system timer with delays)
 - **GIC interrupts**: `docs/src/hardware/gic.md` (GIC-400 interrupt controller)
-- **Ethernet**: `docs/ethernet-driver-research.md` (GENET v5, BCM54213PE PHY)
+- **Ethernet (GENET)**: `docs/src/hardware/genet.md` (GENET v5, BCM54213PE PHY, register reference)
+- **Ethernet (Verification)**: `docs/src/hardware/genet-verification.md` (constant verification, sources)
 
 ### Architecture & Boot
 
@@ -260,10 +261,11 @@ All documentation is in **`docs/src/`** organized as reference wiki (not linear)
 - **Why Pi 4 only**: `docs/src/decisions/adr-001-pi-only.md`
 - **Why QEMU 9.0+**: `docs/src/decisions/adr-002-qemu-9.md`
 
-### Project Planning
+### Project Planning & Verification
 
 - **Roadmap**: `docs/src/roadmap.md` (phases, milestones, timeline)
 - **Introduction**: `docs/src/intro.md` (overview, current status)
+- **Verification Summary**: `docs/src/verification-summary.md` (all constants verified against RFCs/IEEE standards)
 
 ## Critical Constants (Memorize These)
 

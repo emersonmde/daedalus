@@ -77,6 +77,9 @@ pub enum NetworkError {
     /// Timeout waiting for operation to complete
     Timeout,
 
+    /// Timeout waiting for transmission to complete
+    TransmitTimeout,
+
     /// Invalid configuration or parameter
     InvalidConfiguration,
 }
@@ -91,6 +94,7 @@ impl fmt::Display for NetworkError {
             NetworkError::FrameTooSmall => write!(f, "Frame too small"),
             NetworkError::HardwareError => write!(f, "Hardware error"),
             NetworkError::Timeout => write!(f, "Operation timeout"),
+            NetworkError::TransmitTimeout => write!(f, "Transmit timeout"),
             NetworkError::InvalidConfiguration => write!(f, "Invalid configuration"),
         }
     }
@@ -110,8 +114,9 @@ impl fmt::Display for NetworkError {
 ///
 /// # Thread Safety
 ///
-/// Implementations are not required to be thread-safe. In a bare-metal
-/// single-core environment, synchronization is handled by the caller.
+/// Implementations are not required to be thread-safe at the trait level.
+/// Synchronization must be handled by the caller (e.g., wrapping in `Mutex`).
+/// Individual implementations may use lock-free techniques internally (e.g., DMA rings).
 pub trait NetworkDevice {
     /// Check if the hardware is present and accessible
     ///
@@ -161,6 +166,7 @@ pub trait NetworkDevice {
     /// let mut netdev = GenetController::new();
     /// netdev.init().expect("Failed to initialize");
     /// ```
+    #[must_use = "init() failure must be handled - device may not be operational"]
     fn init(&mut self) -> Result<(), NetworkError>;
 
     /// Transmit an Ethernet frame
@@ -178,13 +184,16 @@ pub trait NetworkDevice {
     ///
     /// # Frame Size Constraints
     ///
-    /// - Minimum: 60 bytes (excludes 4-byte CRC)
-    /// - Maximum: 1514 bytes (excludes 4-byte CRC)
+    /// - Minimum: 64 bytes (includes header + payload, excludes 4-byte CRC)
+    /// - Maximum: 1514 bytes (includes header + payload, excludes 4-byte CRC)
+    ///
+    /// Note: IEEE 802.3 minimum is 64 bytes including 4-byte CRC (60 bytes payload).
+    /// Hardware typically handles CRC, so software passes 64-byte frames minimum.
     ///
     /// # Errors
     ///
     /// - `NotInitialized` - Must call `init()` first
-    /// - `FrameTooSmall` - Frame < 60 bytes
+    /// - `FrameTooSmall` - Frame < 64 bytes
     /// - `FrameTooLarge` - Frame > 1514 bytes
     /// - `TxBufferFull` - Hardware buffer full, try again
     /// - `HardwareError` - Transmission failed
@@ -210,6 +219,7 @@ pub trait NetworkDevice {
     /// let size = frame.write_to(&mut buffer).unwrap();
     /// netdev.transmit(&buffer[..size]).expect("Send failed");
     /// ```
+    #[must_use = "transmit() failure must be handled - frame may not have been sent"]
     fn transmit(&mut self, frame: &[u8]) -> Result<(), NetworkError>;
 
     /// Receive an Ethernet frame (non-blocking)
@@ -284,4 +294,23 @@ pub trait NetworkDevice {
     fn link_up(&self) -> bool {
         false
     }
+
+    /// Free the RX buffer after processing a received frame
+    ///
+    /// This must be called after processing a frame returned by `receive()`.
+    /// It tells the driver that the buffer can be reused for receiving new frames.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// # use daedalus::drivers::genet::GenetController;
+    /// # use daedalus::drivers::netdev::NetworkDevice;
+    /// # let mut netdev = GenetController::new();
+    /// # netdev.init().unwrap();
+    /// if let Some(frame) = netdev.receive() {
+    ///     // Process frame...
+    ///     netdev.free_rx_buffer(); // Mark buffer as free
+    /// }
+    /// ```
+    fn free_rx_buffer(&mut self);
 }

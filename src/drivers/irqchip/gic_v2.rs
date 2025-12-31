@@ -78,12 +78,25 @@ mod int_cfg {
 ///
 /// Source: BCM2711 device tree (arch/arm/boot/dts/broadcom/bcm2711.dtsi)
 /// UART0 uses `GIC_SPI 121 IRQ_TYPE_LEVEL_HIGH`, which translates to ID 153 (32 + 121).
+/// GENET uses two interrupts: `GIC_SPI 157` and `GIC_SPI 158` (IDs 189 and 190).
 pub mod irq {
     /// UART0 (PL011) interrupt ID.
     ///
     /// Device tree specifies: `<GIC_SPI 121 IRQ_TYPE_LEVEL_HIGH>`
     /// SPI (Shared Peripheral Interrupt) IDs start at 32, so: 32 + 121 = 153
     pub const UART0: u32 = 153;
+
+    /// GENET Ethernet controller interrupt 0.
+    ///
+    /// Device tree specifies: `<GIC_SPI 157 IRQ_TYPE_LEVEL_HIGH>`
+    /// SPI IDs start at 32, so: 32 + 157 = 189
+    pub const GENET_0: u32 = 189;
+
+    /// GENET Ethernet controller interrupt 1.
+    ///
+    /// Device tree specifies: `<GIC_SPI 158 IRQ_TYPE_LEVEL_HIGH>`
+    /// SPI IDs start at 32, so: 32 + 158 = 190
+    pub const GENET_1: u32 = 190;
 }
 
 lazy_static! {

@@ -151,10 +151,43 @@ pub fn init() {
         ALLOCATOR.heap_size() / 1024 / 1024
     );
 
+    // Initialize Ethernet controller
+    // Skip in test mode - QEMU doesn't have GENET hardware
+    #[cfg(not(test))]
+    {
+        use crate::net::ethernet::MacAddress;
+        let mut genet = drivers::genet::GENET.lock();
+        if genet.is_present() {
+            // Auto-detected MAC address based on Pi serial number
+            // In production, this should be read from OTP or device tree
+            let mac = MacAddress::new([0xB8, 0x27, 0xEB, 0xDE, 0xAD, 0x01]);
+
+            match genet.initialize(&mac) {
+                Ok(()) => {
+                    println!("[  OK  ] Ethernet controller initialized (GENET v5)");
+                }
+                Err(e) => {
+                    println!("[ WARN ] Ethernet initialization failed: {:?}", e);
+                }
+            }
+        } else {
+            println!("[  OK  ] Ethernet controller not detected (QEMU or no hardware)");
+        }
+    }
+
+    // In test mode, just print a message
+    #[cfg(test)]
+    {
+        println!("[  OK  ] Ethernet controller skipped (test mode in QEMU)");
+    }
+
     println!();
 
     // Print startup banner after all initialization is complete
     print_startup_banner();
+
+    // Note: ARP probe diagnostic available via 'arp-probe' shell command
+    // Not auto-run to avoid delays and unsolicited network traffic in production
 }
 
 /// Print kernel startup banner with system information

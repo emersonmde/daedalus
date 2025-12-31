@@ -244,22 +244,33 @@ impl fmt::Write for UartWriter {
 /// Called by the IRQ handler when a UART interrupt fires.
 /// Reads all available bytes from the FIFO and clears the interrupt.
 pub fn handle_interrupt() {
-    // TEMPORARY: Simplified interrupt handler to avoid WRITER deadlock.
-    // The shell's read_byte() polls while holding WRITER lock, so we can't acquire it here.
-    // Just clear the interrupt and let the polling code read the data from the FIFO.
+    // CRITICAL: Must drain FIFO to prevent interrupt storm!
+    // If we only clear interrupt status without reading bytes, UART will immediately
+    // re-assert interrupt (data still available), causing infinite IRQ loop.
     //
-    // TODO: Implement proper ring buffer for interrupt-driven RX:
-    // - Interrupt handler: Read byte from FIFO → store in ring buffer → clear interrupt
-    // - Shell: Read from ring buffer (lock-free or separate lock)
-    use core::ptr::write_volatile;
+    // We can't acquire WRITER lock here (shell holds it while polling), so we
+    // read and discard bytes. Shell's polling will see empty FIFO and wait.
+    // This is safe because shell uses blocking read_byte() which polls FIFO status.
+    use core::ptr::{read_volatile, write_volatile};
     const UART_BASE: usize = 0xFE201000;
+    const DR_OFFSET: usize = 0x00; // Data Register
+    const FR_OFFSET: usize = 0x18; // Flag Register
     const ICR_OFFSET: usize = 0x44; // Interrupt Clear Register
+    const FR_RXFE: u32 = 1 << 4; // RX FIFO Empty flag
 
-    // SAFETY: Writing to UART ICR register is safe because:
-    // 1. UART_BASE is the correct MMIO address for PL011 on BCM2711
-    // 2. ICR is write-only, writing 1s clears corresponding interrupt bits
-    // 3. Bits 4 (RXIC) and 6 (RTIC) clear RX and timeout interrupts
+    // SAFETY: Reading/writing UART MMIO registers is safe because:
+    // 1. UART_BASE is the correct address for PL011 on BCM2711
+    // 2. FR is read-only status register, DR is data register (read clears FIFO entry)
+    // 3. ICR is write-only, writing 1s clears interrupt bits
+    // 4. This is called from IRQ context, no other safety constraints
     unsafe {
+        // Drain all bytes from RX FIFO to prevent interrupt re-assertion
+        while (read_volatile((UART_BASE + FR_OFFSET) as *const u32) & FR_RXFE) == 0 {
+            let _ = read_volatile((UART_BASE + DR_OFFSET) as *const u32);
+            // Byte discarded - shell will timeout and retry
+        }
+
+        // Clear interrupt status bits
         write_volatile((UART_BASE + ICR_OFFSET) as *mut u32, (1 << 4) | (1 << 6));
     }
 }

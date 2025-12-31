@@ -6,6 +6,11 @@
 
 use crate::println;
 use core::arch::asm;
+use core::sync::atomic::{AtomicBool, Ordering};
+
+/// Global flag indicating we're probing hardware (set during hardware detection)
+/// When true, Data Abort exceptions return 0 instead of panicking
+static PROBING_HARDWARE: AtomicBool = AtomicBool::new(false);
 
 /// ESR (Exception Syndrome Register) field definitions.
 ///
@@ -250,14 +255,49 @@ extern "C" fn exception_handler_el1_sp0(ctx: &ExceptionContext, exc_type: u64) {
 /// Handle exceptions from current EL using SPx.
 // SAFETY: no_mangle required because this function is called by name from assembly (exceptions.s).
 // extern "C" ensures stable ABI. Assembly guarantees: valid ExceptionContext pointer, valid exc_type value.
+// Context is mutable because assembly saves it on stack and restores it after handler returns.
 #[unsafe(no_mangle)]
-extern "C" fn exception_handler_el1_spx(ctx: &ExceptionContext, exc_type: u64) {
+extern "C" fn exception_handler_el1_spx(ctx: &mut ExceptionContext, exc_type: u64) {
     let exc_type = ExceptionType::from_u64(exc_type);
 
     // Handle IRQs separately
     if matches!(exc_type, ExceptionType::Irq) {
         handle_irq();
         return;
+    }
+
+    // Log FIQ/SError for debugging (these should never happen normally)
+    if matches!(exc_type, ExceptionType::Fiq) {
+        crate::println!("[EXCEPTION] FIQ received!");
+    } else if matches!(exc_type, ExceptionType::SError) {
+        crate::println!("[EXCEPTION] SError received!");
+    }
+
+    // Handle Data Abort during hardware probing (Linux-style probe)
+    // When probing hardware, return 0 instead of panicking on Data Abort
+    if matches!(exc_type, ExceptionType::Synchronous) && PROBING_HARDWARE.load(Ordering::Acquire) {
+        // Read ESR to check if this is a Data Abort
+        let esr: u64;
+        // SAFETY: Reading ESR_EL1 system register is safe (read-only, no side effects)
+        unsafe {
+            asm!("mrs {}, ESR_EL1", out(reg) esr, options(nomem, nostack));
+        }
+
+        let ec = (esr >> esr_fields::EC_SHIFT) & esr_fields::EC_MASK;
+        // 0x25 = Data Abort from same EL
+        if ec == 0x25 {
+            // Clear probe flag
+            PROBING_HARDWARE.store(false, Ordering::Release);
+
+            // Modify exception context to skip faulting instruction and return 0
+            // We have &mut access to the context, which will be restored by assembly (RESTORE_CONTEXT).
+            // This allows MMIO probe to recover from faults gracefully:
+            // - ELR += 4 skips the faulting LDR instruction (ARMv8 fixed 32-bit instructions)
+            // - x0 = 0 provides a safe return value indicating hardware not present
+            ctx.elr_el1 += 4; // Skip faulting instruction
+            ctx.x0 = 0; // Return 0 for failed read
+            return; // Return without panicking
+        }
     }
 
     // All other exceptions: print context and panic
@@ -290,6 +330,15 @@ extern "C" fn exception_handler_lower_aa32(ctx: &ExceptionContext, exc_type: u64
 /// Handle an IRQ by reading the interrupt ID from the GIC and routing to
 /// the appropriate peripheral handler.
 fn handle_irq() {
+    // Track IRQ entry for debugging interrupt storms
+    static IRQ_ENTRY_COUNT: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+    let entry_count = IRQ_ENTRY_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+
+    // Log first few IRQ entries to detect storms early (before any locks)
+    if entry_count < 5 {
+        crate::println!("[IRQ] Handler entry #{}", entry_count + 1);
+    }
+
     // Acknowledge the interrupt and get its ID
     // Drop the lock immediately after acknowledging
     let int_id = {
@@ -297,9 +346,31 @@ fn handle_irq() {
         gic.acknowledge_interrupt()
     }; // GIC lock dropped here
 
+    // Log interrupt ID for first few entries
+    if entry_count < 5 {
+        crate::println!("[IRQ] Interrupt ID: {}", int_id);
+    }
+
     // Spurious interrupt check (ID 1023 means no pending interrupt)
     if int_id == 1023 {
+        if entry_count < 5 {
+            crate::println!("[IRQ] Spurious interrupt (ID 1023)");
+        }
         return;
+    }
+
+    // CRITICAL: Always log GENET interrupts (these should NEVER fire - they're masked!)
+    // Log regardless of count limits to catch interrupt storm
+    if int_id == crate::drivers::gic::irq::GENET_0 || int_id == crate::drivers::gic::irq::GENET_1 {
+        static GENET_IRQ_COUNT: core::sync::atomic::AtomicU32 =
+            core::sync::atomic::AtomicU32::new(0);
+        let count = GENET_IRQ_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        crate::println!(
+            "[IRQ] !!! GENET INTERRUPT {} FIRED !!! (count: {})",
+            int_id,
+            count + 1
+        );
+        crate::println!("[IRQ] This should not happen - GENET interrupts are masked!");
     }
 
     // Route to appropriate handler based on interrupt ID
@@ -309,8 +380,23 @@ fn handle_irq() {
             // UART0 interrupt
             crate::drivers::uart::handle_interrupt();
         }
+        crate::drivers::gic::irq::GENET_0 | crate::drivers::gic::irq::GENET_1 => {
+            // GENET interrupts - these should be masked!
+            // Just acknowledge and ignore for now
+            crate::println!("[IRQ] Ignoring GENET interrupt {}", int_id);
+        }
         _ => {
-            // Unknown interrupt - ignore silently
+            // Unknown interrupt - log it for debugging (limit to first few to avoid spam)
+            static UNKNOWN_IRQ_COUNT: core::sync::atomic::AtomicU32 =
+                core::sync::atomic::AtomicU32::new(0);
+            let count = UNKNOWN_IRQ_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            if count < 10 {
+                crate::println!(
+                    "[IRQ] Unknown interrupt ID: {} (count: {})",
+                    int_id,
+                    count + 1
+                );
+            }
         }
     }
 
@@ -369,4 +455,50 @@ pub fn init() {
             );
         }
     }
+}
+
+/// Safely probe a hardware register address (Linux-style probe)
+///
+/// Attempts to read from a memory-mapped I/O address. If the address triggers a
+/// Data Abort (hardware not present), returns 0 instead of panicking.
+///
+/// This is similar to Linux's `probe_kernel_read` - it sets a flag before reading,
+/// and the exception handler checks this flag to recover gracefully from Data Aborts.
+///
+/// # Arguments
+/// * `addr` - Physical address to probe (e.g., hardware register)
+///
+/// # Returns
+/// * `u32` - Register value if hardware present, 0 if Data Abort occurred
+///
+/// # Safety
+/// This function uses exception handling to recover from invalid memory access.
+/// Caller must ensure the address is aligned for u32 access.
+///
+/// # Example
+/// ```ignore
+/// let version = probe_read_u32(0xFD580000); // GENET version register
+/// if version != 0 {
+///     // Hardware is present
+/// }
+/// ```
+pub fn probe_read_u32(addr: usize) -> u32 {
+    // Set probe flag before attempting read
+    PROBING_HARDWARE.store(true, Ordering::Release);
+
+    // Attempt to read - if Data Abort occurs, exception handler will:
+    // 1. Clear PROBING_HARDWARE flag
+    // 2. Set return value (x0) to 0
+    // 3. Skip past the faulting instruction (ELR += 4)
+    // 4. Return normally
+    //
+    // SAFETY: We set PROBING_HARDWARE flag so exception handler knows to recover.
+    // If hardware not present, exception handler modifies return value to 0.
+    // read_volatile is required to prevent compiler optimization.
+    let value = unsafe { core::ptr::read_volatile(addr as *const u32) };
+
+    // Clear probe flag on successful read
+    PROBING_HARDWARE.store(false, Ordering::Release);
+
+    value
 }

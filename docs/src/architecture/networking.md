@@ -309,7 +309,12 @@ const MIN_FRAME_SIZE: usize = 60;      // 14 + 46 (excluding CRC)
 const MAX_FRAME_SIZE: usize = 1514;    // 14 + 1500 (excluding CRC)
 ```
 
-Source: IEEE 802.3 Ethernet standard
+**Verification**: IEEE 802.3 Ethernet standard defines minimum frame size of 64 bytes and maximum of 1518 bytes (including 4-byte FCS/CRC). Excluding the CRC: 60 bytes minimum, 1514 bytes maximum.
+
+**Sources**:
+- IEEE 802.3 Ethernet standard
+- Verified against: [Wikipedia - Ethernet Frame](https://en.wikipedia.org/wiki/Ethernet_frame)
+- Verified against: `src/net/ethernet.rs` implementation
 
 #### Creating a Frame
 
@@ -384,7 +389,12 @@ pub const ETHERTYPE_ARP: u16 = 0x0806;   // Address Resolution Protocol
 pub const ETHERTYPE_IPV6: u16 = 0x86DD;  // Internet Protocol v6
 ```
 
-Source: IEEE 802 Numbers - <https://www.iana.org/assignments/ieee-802-numbers/>
+**Verification**: All values confirmed against official IANA IEEE 802 Numbers registry.
+
+**Sources**:
+- [IANA IEEE 802 Numbers](https://www.iana.org/assignments/ieee-802-numbers/)
+- RFC 9542 (authoritative reference for these protocols)
+- Verified against: `src/net/ethernet.rs` constants
 
 ---
 
@@ -422,6 +432,14 @@ Total: 28 bytes (for Ethernet/IPv4)
 
 **Note**: This packet is carried as the payload of an Ethernet frame with EtherType 0x0806.
 
+**Verification**: ARP packet structure confirmed against RFC 826. Total size for Ethernet/IPv4 is 28 bytes:
+- Fixed header: 8 bytes (hardware type, protocol type, lengths, operation)
+- Addresses: 20 bytes (6+4+6+4)
+
+**Sources**:
+- [RFC 826 - Address Resolution Protocol](https://www.rfc-editor.org/rfc/rfc826)
+- Verified against: `src/net/arp.rs` implementation
+
 ### ARP Operation Types
 
 ```rust
@@ -431,6 +449,20 @@ pub enum ArpOperation {
     Reply = 2,    // "IP X is at MAC Z"
 }
 ```
+
+**Verification**: Operation codes confirmed from RFC 826:
+- `ares_op$REQUEST = 1`
+- `ares_op$REPLY = 2`
+
+**ARP Constants** (verified from RFC 826):
+```rust
+pub const ARP_HARDWARE_ETHERNET: u16 = 1;    // ares_hrd$Ethernet
+pub const ARP_PROTOCOL_IPV4: u16 = 0x0800;   // ether_type$DOD_INTERNET
+```
+
+**Sources**:
+- [RFC 826 - Address Resolution Protocol](https://www.rfc-editor.org/rfc/rfc826)
+- Verified against: `src/net/arp.rs` constants
 
 ### ARP Request Example
 

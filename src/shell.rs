@@ -3,7 +3,7 @@
 //! Provides a simple command-line interface with built-in commands for
 //! system information, memory statistics, and testing.
 
-use crate::drivers::genet::GenetController;
+use crate::drivers::genet::GENET;
 use crate::drivers::gpio::{Function, Gpio, Pull};
 use crate::drivers::timer::SystemTimer;
 use crate::drivers::uart::WRITER;
@@ -135,7 +135,8 @@ fn execute_command(cmd: Command) {
             println!("  gpio-toggle <pin>        - Toggle output pin");
             println!();
             println!("Network:");
-            println!("  eth-diag       - Run Ethernet hardware diagnostics");
+            println!("  eth-stats      - Show Ethernet packet statistics");
+            println!("  arp-probe      - Send ARP probe to test TX/RX (10.42.10.1)");
             println!();
             println!("Utilities:");
             println!("  echo           - Print arguments to console");
@@ -582,10 +583,39 @@ fn execute_command(cmd: Command) {
             }
         }
 
-        "eth-diag" => {
+        "eth-stats" => {
+            let genet = GENET.lock();
+
+            if !genet.is_present() {
+                println!("[ERROR] GENET hardware not detected!");
+                return;
+            }
+
+            let stats = genet.read_stats();
+
+            println!("Ethernet Statistics:");
             println!();
-            let genet = GenetController::new();
-            let _ = genet.diagnostic();
+            println!("TX (Transmit):");
+            println!("  Packets:   {}", stats.tx_packets);
+            println!("  Bytes:     {}", stats.tx_bytes);
+            println!("  Broadcast: {}", stats.tx_broadcast);
+            println!("  Multicast: {}", stats.tx_multicast);
+            println!();
+            println!("RX (Receive):");
+            println!("  Packets:   {}", stats.rx_packets);
+            println!("  Bytes:     {}", stats.rx_bytes);
+            println!("  Unicast:   {}", stats.rx_unicast);
+            println!("  Broadcast: {}", stats.rx_broadcast);
+            println!("  Multicast: {}", stats.rx_multicast);
+            println!();
+            println!("RX Errors:");
+            println!("  FCS errors:       {}", stats.rx_fcs_errors);
+            println!("  Alignment errors: {}", stats.rx_align_errors);
+        }
+
+        "arp-probe" => {
+            use crate::net::run_arp_probe_diagnostic;
+            run_arp_probe_diagnostic();
         }
 
         _ => {
