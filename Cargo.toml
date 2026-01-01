@@ -8,6 +8,11 @@ lazy_static = { version = "1.0", features = ["spin_no_std"] }
 spin = "0.5.2"
 volatile = "0.2.6"
 
+[dependencies.fdt-rs]
+version = "0.4"
+default-features = false
+# no_std compatible, no allocation required for basic parsing
+
 [[bin]]
 name = "daedalus"
 test = false

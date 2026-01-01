@@ -6,6 +6,10 @@
 .global _start
 
 _start:
+    // Save DTB pointer passed by firmware (ARM boot protocol)
+    // Firmware provides DTB address in x0, we must preserve it before using x0
+    mov     x19, x0             // x19 is callee-saved, safe to use
+
     // Read MPIDR_EL1 to get core ID
     mrs     x0, mpidr_el1
     and     x0, x0, #0xFF       // Extract Aff0 field (core ID)
@@ -81,7 +85,8 @@ clear_bss:
     b       clear_bss
 
 clear_bss_done:
-    // Jump to Rust entry point
+    // Pass DTB pointer as first argument to Rust
+    mov     x0, x19             // Restore DTB pointer saved at boot
     bl      _start_rust
 
     // If Rust returns (it shouldn't), park

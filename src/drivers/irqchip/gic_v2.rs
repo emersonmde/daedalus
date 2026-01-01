@@ -15,12 +15,16 @@ use spin::Mutex;
 ///
 /// Source: BCM2711 ARM Peripherals, Section 6
 /// Reference: <https://datasheets.raspberrypi.com/bcm2711/bcm2711-peripherals.pdf>
-const GICD_BASE: usize = 0xFF841000;
+///
+/// Public for device tree verification.
+pub const GICD_BASE: usize = 0xFF841000;
 
 /// GIC CPU Interface base address (BCM2711).
 ///
 /// Source: BCM2711 ARM Peripherals, Section 6
-const GICC_BASE: usize = 0xFF842000;
+///
+/// Public for device tree verification.
+pub const GICC_BASE: usize = 0xFF842000;
 
 /// GIC Distributor register offsets.
 ///

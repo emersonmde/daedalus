@@ -112,10 +112,23 @@ pub struct PropertyMailbox {
 
 #[allow(clippy::new_without_default)] // Hardware interface shouldn't have Default - explicit new() is clearer
 impl PropertyMailbox {
-    /// Create new property mailbox interface
+    /// Create new property mailbox interface with hardcoded base address
+    ///
+    /// Uses the hardcoded MAILBOX_BASE constant. Prefer `with_base_addr()`
+    /// when base address is available from device tree.
     pub const fn new() -> Self {
         Self {
             mbox: Mailbox::new(),
+        }
+    }
+
+    /// Create new property mailbox interface with custom base address (from device tree)
+    ///
+    /// # Arguments
+    /// * `base_addr` - ARM physical address for mailbox (e.g., 0xFE00B880)
+    pub const fn with_base_addr(base_addr: usize) -> Self {
+        Self {
+            mbox: Mailbox::with_base_addr(base_addr),
         }
     }
 

@@ -9,7 +9,9 @@ use spin::Mutex;
 use volatile::Volatile;
 
 /// PL011 UART base address (BCM2711 Low Peripheral mode).
-const UART_BASE: usize = 0xFE20_1000;
+///
+/// Public for device tree verification.
+pub const UART_BASE: usize = 0xFE20_1000;
 
 /// PL011 UART register bit definitions.
 ///

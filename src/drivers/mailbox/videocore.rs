@@ -26,7 +26,9 @@ use crate::drivers::clocksource::SystemTimer;
 
 /// Mailbox base address (BCM2711)
 /// Source: BCM2711 ARM Peripherals §1.3
-const MAILBOX_BASE: usize = 0xFE00_B880;
+///
+/// Public for device tree verification.
+pub const MAILBOX_BASE: usize = 0xFE00_B880;
 
 /// Mailbox hardware registers
 #[repr(C)]
@@ -73,11 +75,20 @@ pub struct Mailbox {
 
 #[allow(clippy::new_without_default)] // Hardware drivers shouldn't have Default - explicit new() is clearer
 impl Mailbox {
-    /// Create new mailbox instance
+    /// Create new mailbox instance with hardcoded base address
+    ///
+    /// Uses the hardcoded MAILBOX_BASE constant. Prefer `with_base_addr()`
+    /// when base address is available from device tree.
     pub const fn new() -> Self {
-        Self {
-            base_addr: MAILBOX_BASE,
-        }
+        Self::with_base_addr(MAILBOX_BASE)
+    }
+
+    /// Create new mailbox instance with custom base address (from device tree)
+    ///
+    /// # Arguments
+    /// * `base_addr` - ARM physical address for mailbox (e.g., 0xFE00B880)
+    pub const fn with_base_addr(base_addr: usize) -> Self {
+        Self { base_addr }
     }
 
     /// Get pointer to mailbox registers

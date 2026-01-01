@@ -31,8 +31,13 @@ use alloc::boxed::Box;
 // ============================================================================
 
 /// GENET controller base address (BCM2711)
+///
+/// ARM physical address: 0xFD580000 (bus address 0x7D580000 + 0x80000000)
 /// Source: BCM2711 ARM Peripherals, Section 2.1
-const GENET_BASE: usize = 0xFD58_0000;
+///
+/// Public for device tree verification (Phase 3 - comparing DT vs hardcoded)
+/// Will be replaced by DTB value in Phase 4
+pub const GENET_BASE: usize = 0xFD58_0000;
 
 // NOTE: DMA_BUS_OFFSET (0xC0000000) is NOT used by GENET
 // U-Boot writes direct physical addresses to descriptors
@@ -344,8 +349,19 @@ impl GenetController {
     /// Note: MAC address is initialized to zero and will be set during init()
     /// by querying the VideoCore firmware via mailbox.
     pub fn new() -> Self {
+        Self::with_base_addr(GENET_BASE)
+    }
+
+    /// Create GENET controller with custom base address (from device tree)
+    ///
+    /// # Arguments
+    /// * `base_addr` - ARM physical address for GENET controller (e.g., 0xFD580000)
+    ///
+    /// This constructor allows runtime configuration from device tree.
+    /// The default `new()` uses the hardcoded GENET_BASE constant.
+    pub fn with_base_addr(base_addr: usize) -> Self {
         Self {
-            base_addr: GENET_BASE,
+            base_addr,
             tx_index: 0,
             tx_prod_index: 0,
             rx_index: 0,
@@ -711,7 +727,12 @@ impl GenetController {
     /// and configures the GENET controller.
     ///
     /// Source: U-Boot bcmgenet.c::bcmgenet_gmac_eth_start()
-    pub fn initialize(&mut self) -> Result<(), NetworkError> {
+    /// Initialize GENET hardware
+    ///
+    /// # Arguments
+    /// * `mailbox_addr` - Optional mailbox base address from device tree.
+    ///   If None, uses hardcoded MAILBOX_BASE constant.
+    pub fn initialize(&mut self, mailbox_addr: Option<usize>) -> Result<(), NetworkError> {
         if !self.is_present() {
             return Err(NetworkError::HardwareNotPresent);
         }
@@ -721,7 +742,12 @@ impl GenetController {
         // Query MAC address from VideoCore firmware (reads from OTP)
         // Source: U-Boot board/raspberrypi/rpi/rpi.c::set_usbethaddr()
         use crate::drivers::mailbox::PropertyMailbox;
-        let mailbox = PropertyMailbox::new();
+        let mailbox = if let Some(addr) = mailbox_addr {
+            PropertyMailbox::with_base_addr(addr)
+        } else {
+            PropertyMailbox::new()
+        };
+
         let mac_bytes = mailbox
             .get_mac_address()
             .map_err(|_| NetworkError::HardwareNotPresent)?;
@@ -1082,7 +1108,8 @@ impl NetworkDevice for GenetController {
 
     fn init(&mut self) -> Result<(), NetworkError> {
         // MAC address is read from hardware (firmware programs it from OTP)
-        self.initialize()
+        // Use hardcoded mailbox address (trait doesn't support passing DTB address)
+        self.initialize(None)
     }
 
     fn transmit(&mut self, frame: &[u8]) -> Result<(), NetworkError> {

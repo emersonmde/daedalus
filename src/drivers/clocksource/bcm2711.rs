@@ -35,7 +35,9 @@ use core::ptr;
 ///
 /// This is the ARM physical address. The bus address in datasheets shows 0x7E003000,
 /// but ARM cores must use 0xFE000000 base for peripherals.
-const TIMER_BASE: usize = 0xFE003000;
+///
+/// Public for device tree verification.
+pub const TIMER_BASE: usize = 0xFE003000;
 
 /// System Timer register offsets from TIMER_BASE.
 #[allow(dead_code)] // Some registers will be used in Milestone #9 (interrupts)

@@ -16,9 +16,10 @@ use daedalus::println;
 // SAFETY: no_mangle required because this is the entry point called by name from boot.s after CPU initialization.
 // extern "C" ensures stable ABI. Assembly caller (boot.s) guarantees: stack is 16-byte aligned, BSS is zeroed,
 // other cores are parked, MMU is disabled, running at EL1 or EL2, interrupts are masked.
+// dtb_ptr is passed in x0 per ARM boot protocol - firmware provides DTB address.
 #[unsafe(no_mangle)]
-pub extern "C" fn _start_rust() -> ! {
-    daedalus::init();
+pub extern "C" fn _start_rust(dtb_ptr: usize) -> ! {
+    daedalus::init(dtb_ptr as *const u8);
 
     #[cfg(test)]
     test_main();

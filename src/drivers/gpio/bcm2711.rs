@@ -13,7 +13,9 @@ use volatile::Volatile;
 ///
 /// Source: BCM2711 Peripherals Section 5
 /// <https://datasheets.raspberrypi.com/bcm2711/bcm2711-peripherals.pdf>
-const GPIO_BASE: usize = 0xFE20_0000;
+///
+/// Public for device tree verification.
+pub const GPIO_BASE: usize = 0xFE20_0000;
 
 /// Number of GPIO pins available on BCM2711.
 ///

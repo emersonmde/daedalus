@@ -19,6 +19,7 @@ extern crate alloc;
 
 pub mod arch;
 pub mod drivers;
+pub mod dt;
 pub mod mm;
 pub mod net;
 pub mod qemu;
@@ -81,10 +82,62 @@ fn enable_irqs() {
     }
 }
 
+/// Initialize Ethernet controller using device tree
+///
+/// Attempts to find GENET in device tree and initialize with DTB address.
+/// Falls back to hardcoded address if DTB parsing fails.
+/// Gracefully skips initialization if hardware not present (QEMU).
+#[cfg(not(test))]
+fn init_ethernet(hw: &Option<dt::HardwareInfo>) {
+    // Try to find GENET in device tree
+    let genet_device = hw
+        .as_ref()
+        .and_then(|h| h.find_device("brcm,bcm2711-genet-v5"));
+
+    let base_addr = if let Some(device) = genet_device {
+        // Extract base address from device tree and translate to physical
+        device.base_address().map(dt::bus_to_physical)
+    } else {
+        // Not in device tree (QEMU or disabled)
+        None
+    };
+
+    // Initialize GENET if we have a base address
+    if let Some(addr) = base_addr {
+        // Try to get mailbox address from device tree too
+        let mbox_addr = hw.as_ref().and_then(|h| {
+            h.find_device("brcm,bcm2711-mbox")
+                .or_else(|| h.find_device("brcm,bcm2835-mbox"))
+                .and_then(|dev| dev.base_address().map(dt::bus_to_physical))
+        });
+
+        let mut genet = drivers::genet::GENET.lock();
+        *genet = drivers::genet::GenetController::with_base_addr(addr);
+
+        if genet.is_present() {
+            // MAC address is read from hardware (firmware programs it from OTP via mailbox)
+            match genet.initialize(mbox_addr) {
+                Ok(()) => {
+                    println!("[  OK  ] Ethernet controller initialized (GENET v5)");
+                }
+                Err(e) => {
+                    println!("[ WARN ] Ethernet initialization failed: {:?}", e);
+                }
+            }
+        } else {
+            println!("[ WARN ] GENET hardware not detected");
+        }
+    }
+}
+
 /// Initialize the kernel
 ///
 /// Sets up hardware devices and prepares the system for operation.
-pub fn init() {
+///
+/// # Arguments
+///
+/// * `dtb_ptr` - Pointer to Device Tree Blob passed by firmware in x0 register
+pub fn init(dtb_ptr: *const u8) {
     // Initialize MMU first for memory protection
     // SAFETY: Called exactly once during kernel initialization.
     // Identity mapping ensures all existing code/data addresses remain valid.
@@ -99,6 +152,22 @@ pub fn init() {
     println!();
     println!("DaedalusOS v{} booting...", env!("CARGO_PKG_VERSION"));
     println!();
+
+    // Parse device tree from firmware
+    // Note: We only parse the header here (no allocations yet)
+    // Full verification happens after heap initialization
+    #[allow(unused_variables)] // Used in non-test builds for hardware detection
+    let hw = match dt::HardwareInfo::from_firmware(dtb_ptr) {
+        Ok(hw) => {
+            println!("[  OK  ] Device tree parsed ({} bytes)", hw.size());
+            Some(hw)
+        }
+        Err(e) => {
+            println!("[ WARN ] Device tree parsing failed: {}", e);
+            println!("[ WARN ] Falling back to hardcoded addresses");
+            None
+        }
+    };
 
     // Show initialization sequence
     // TODO: Add log levels (INFO, DEBUG, etc.) in future logging framework
@@ -117,12 +186,13 @@ pub fn init() {
     }
     println!("[  OK  ] GIC-400 interrupt controller initialized");
 
-    // Enable UART RX interrupts
-    drivers::uart::WRITER.lock().enable_rx_interrupt();
+    // TODO: Enable UART RX interrupts for interrupt-driven I/O
+    // Currently disabled because polling-only mode is used
+    // drivers::uart::WRITER.lock().enable_rx_interrupt();
 
     // Enable IRQs at CPU level
     enable_irqs();
-    println!("[  OK  ] IRQs enabled (interrupt-driven I/O active)");
+    println!("[  OK  ] IRQs enabled");
 
     // Initialize heap allocator
     // SAFETY: This code is safe because:
@@ -152,24 +222,10 @@ pub fn init() {
     );
 
     // Initialize Ethernet controller
-    // Skip in test mode - QEMU doesn't have GENET hardware
+    // Use device tree to detect if GENET hardware is present
+    // This prevents crashes in QEMU which doesn't emulate GENET
     #[cfg(not(test))]
-    {
-        let mut genet = drivers::genet::GENET.lock();
-        if genet.is_present() {
-            // MAC address is read from hardware (firmware programs it from OTP)
-            match genet.initialize() {
-                Ok(()) => {
-                    println!("[  OK  ] Ethernet controller initialized (GENET v5)");
-                }
-                Err(e) => {
-                    println!("[ WARN ] Ethernet initialization failed: {:?}", e);
-                }
-            }
-        } else {
-            println!("[  OK  ] Ethernet controller not detected (QEMU or no hardware)");
-        }
-    }
+    init_ethernet(&hw);
 
     // In test mode, just print a message
     #[cfg(test)]
@@ -277,8 +333,9 @@ pub fn test_runner(tests: &[&dyn Testable]) {
 #[test_case]
 fn test_kernel_init() {
     // Test that init() can be called multiple times safely
-    init();
-    init();
+    // Pass null DTB pointer for tests (DTB parsing will fail gracefully)
+    init(core::ptr::null());
+    init(core::ptr::null());
     // If we get here without hanging, initialization is idempotent
 }
 
@@ -617,8 +674,8 @@ fn test_allocator_stats() {
 // SAFETY: no_mangle required because this is the test entry point called by name from boot.s in test mode.
 // extern "C" ensures stable ABI. Assembly caller guarantees same as main: aligned stack, zeroed BSS, EL1/EL2.
 #[unsafe(no_mangle)]
-pub extern "C" fn _start_rust() -> ! {
-    init();
+pub extern "C" fn _start_rust(dtb_ptr: usize) -> ! {
+    init(dtb_ptr as *const u8);
     test_main();
     loop {
         // Wait for interrupt to save power
