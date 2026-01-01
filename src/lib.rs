@@ -155,14 +155,10 @@ pub fn init() {
     // Skip in test mode - QEMU doesn't have GENET hardware
     #[cfg(not(test))]
     {
-        use crate::net::ethernet::MacAddress;
         let mut genet = drivers::genet::GENET.lock();
         if genet.is_present() {
-            // Auto-detected MAC address based on Pi serial number
-            // In production, this should be read from OTP or device tree
-            let mac = MacAddress::new([0xB8, 0x27, 0xEB, 0xDE, 0xAD, 0x01]);
-
-            match genet.initialize(&mac) {
+            // MAC address is read from hardware (firmware programs it from OTP)
+            match genet.initialize() {
                 Ok(()) => {
                     println!("[  OK  ] Ethernet controller initialized (GENET v5)");
                 }

@@ -25,7 +25,6 @@ use crate::drivers::netdev::{NetworkDevice, NetworkError};
 use crate::net::ethernet::MacAddress;
 use crate::println;
 use alloc::boxed::Box;
-use core::sync::atomic::{AtomicBool, Ordering};
 
 // ============================================================================
 // Hardware Constants
@@ -199,7 +198,7 @@ const MIB_RX_ALIGN_ERR: usize = MIB_BASE + 0x30;
 const MDIO_START_BUSY: u32 = 1 << 29;
 const MDIO_READ_FAIL: u32 = 1 << 28;
 const MDIO_RD: u32 = 2 << 26;
-#[allow(dead_code)] // Future use: PHY register writes (mdio_write function)
+#[allow(dead_code)] // Future use: PHY register writes (mdio_write function not yet implemented)
 const MDIO_WR: u32 = 1 << 26;
 const MDIO_PMD_SHIFT: u32 = 21;
 const MDIO_REG_SHIFT: u32 = 16;
@@ -209,8 +208,8 @@ const PHY_ADDR: u32 = 1;
 
 // Standard MII registers
 const MII_BMSR: u32 = 0x01;
-#[allow(dead_code)] // Future use: PHY identification (read_phy_id function)
 const MII_PHYSID1: u32 = 0x02;
+const MII_PHYSID2: u32 = 0x03;
 const MII_LPA: u32 = 0x05;
 
 // BMSR bits
@@ -303,6 +302,21 @@ const DMA_TX_APPEND_CRC: u32 = 0x0040; // bit 6: Append CRC
 const DMA_TX_QTAG_SHIFT: u32 = 7;
 
 // ============================================================================
+// Cache Management Constants
+// ============================================================================
+
+/// ARM Cortex-A72 cache line size (BCM2711)
+const CACHE_LINE_SIZE: usize = 64;
+
+// ============================================================================
+// DMA Descriptor Constants
+// ============================================================================
+
+/// DMA descriptor word count (12 bytes = 3 words)
+/// Source: U-Boot descriptor size / sizeof(u32)
+const DMA_DESC_WORDS: u32 = (DMA_DESC_SIZE / 4) as u32;
+
+// ============================================================================
 // Driver State
 // ============================================================================
 
@@ -353,13 +367,82 @@ impl GenetController {
 
     #[inline]
     fn write_reg(&self, offset: usize, value: u32) {
-        // SAFETY: Barrier before write (matches U-Boot __iowmb())
+        // SAFETY: Data Memory Barrier ensures all memory accesses before this write
+        // are observed before MMIO register write. This prevents CPU reordering that
+        // could cause DMA descriptors to be read before their buffers are written.
+        // Matches U-Boot's __iowmb() pattern.
         unsafe {
             core::arch::asm!("dmb sy", options(nostack));
         }
         let addr = (self.base_addr + offset) as *mut u32;
         // SAFETY: GENET registers are memory-mapped at valid addresses
         unsafe { core::ptr::write_volatile(addr, value) }
+    }
+
+    // ========================================================================
+    // Cache Management Helpers
+    // ========================================================================
+
+    /// Flush cache for a memory region (DC CVAC - Clean by VA to PoC)
+    ///
+    /// Ensures CPU writes are flushed to DRAM so DMA can see them.
+    /// Used before TX to flush packet buffers.
+    ///
+    /// # Safety
+    /// Caller must ensure the memory region [start_addr, end_addr) is valid.
+    #[inline]
+    fn cache_flush(&self, start_addr: usize, length: usize) {
+        let end_addr = start_addr + length;
+        let start_aligned = start_addr & !(CACHE_LINE_SIZE - 1);
+        let end_aligned = (end_addr + CACHE_LINE_SIZE - 1) & !(CACHE_LINE_SIZE - 1);
+
+        // SAFETY: Flushing cache for valid memory region.
+        // DC CVAC cleans (writes back) dirty cache lines without invalidating.
+        // DSB ensures cache operations complete before proceeding.
+        unsafe {
+            let mut addr = start_aligned;
+            while addr < end_aligned {
+                core::arch::asm!(
+                    "dc cvac, {addr}",
+                    addr = in(reg) addr,
+                    options(nostack)
+                );
+                addr += CACHE_LINE_SIZE;
+            }
+            core::arch::asm!("dsb sy", options(nostack));
+        }
+    }
+
+    /// Invalidate cache for a memory region (DC IVAC - Invalidate by VA to PoC)
+    ///
+    /// Discards cached data so CPU will read from DRAM where DMA wrote.
+    /// Used after RX to invalidate stale cached data and before RX init to
+    /// ensure DMA writes go directly to DRAM.
+    ///
+    /// # Safety
+    /// Caller must ensure the memory region [start_addr, end_addr) is valid.
+    #[inline]
+    fn cache_invalidate(&self, start_addr: usize, length: usize) {
+        let end_addr = start_addr + length;
+        let start_aligned = start_addr & !(CACHE_LINE_SIZE - 1);
+        let end_aligned = (end_addr + CACHE_LINE_SIZE - 1) & !(CACHE_LINE_SIZE - 1);
+
+        // SAFETY: Invalidating cache for valid memory region.
+        // DC IVAC invalidates cache lines without writing back (data loss if dirty!).
+        // DSB ensures cache operations complete and memory ordering is preserved.
+        unsafe {
+            core::arch::asm!("dsb sy", options(nostack));
+            let mut addr = start_aligned;
+            while addr < end_aligned {
+                core::arch::asm!(
+                    "dc ivac, {addr}",
+                    addr = in(reg) addr,
+                    options(nostack)
+                );
+                addr += CACHE_LINE_SIZE;
+            }
+            core::arch::asm!("dsb sy", options(nostack));
+        }
     }
 
     // ========================================================================
@@ -392,10 +475,16 @@ impl GenetController {
     }
 
     /// Read PHY identifier (for diagnostics)
+    ///
+    /// Returns the full 32-bit PHY ID by reading PHYSID1 (upper 16 bits)
+    /// and PHYSID2 (lower 16 bits).
+    ///
+    /// For BCM54213PE: 0x600D84A2
     #[allow(dead_code)]
     fn read_phy_id(&self) -> Option<u32> {
-        let id1 = self.mdio_read(PHY_ADDR, MII_PHYSID1)?;
-        Some(id1 as u32)
+        let id1 = self.mdio_read(PHY_ADDR, MII_PHYSID1)? as u32;
+        let id2 = self.mdio_read(PHY_ADDR, MII_PHYSID2)? as u32;
+        Some((id1 << 16) | id2)
     }
 
     fn read_link_params(&self) -> Option<LinkParams> {
@@ -508,33 +597,11 @@ impl GenetController {
     fn rx_descs_init(&mut self) {
         let rxbuffers_base = self.rxbuffer.as_ptr() as usize;
 
-        // DEBUG: Show first descriptor setup
-        crate::println!("[GENET] RX Descriptor Setup:");
-        crate::println!("  RX buffer base: 0x{:08X}", rxbuffers_base);
-
         // Invalidate cache for all RX buffers BEFORE setting up descriptors
         // This ensures any stale cached data (like zeros from allocation) is discarded
         // so DMA writes go directly to DRAM
-        const CACHE_LINE_SIZE: usize = 64;
         let total_rx_size = RING_SIZE * RX_BUF_LENGTH;
-        let start_aligned = rxbuffers_base & !(CACHE_LINE_SIZE - 1);
-        let end_aligned =
-            (rxbuffers_base + total_rx_size + CACHE_LINE_SIZE - 1) & !(CACHE_LINE_SIZE - 1);
-
-        // SAFETY: Invalidating cache for all RX buffers before DMA starts
-        unsafe {
-            core::arch::asm!("dsb sy", options(nostack));
-            let mut addr = start_aligned;
-            while addr < end_aligned {
-                core::arch::asm!(
-                    "dc ivac, {addr}",
-                    addr = in(reg) addr,
-                    options(nostack)
-                );
-                addr += CACHE_LINE_SIZE;
-            }
-            core::arch::asm!("dsb sy", options(nostack));
-        }
+        self.cache_invalidate(rxbuffers_base, total_rx_size);
 
         for i in 0..RING_SIZE {
             let buffer_offset = i * RX_BUF_LENGTH;
@@ -549,10 +616,6 @@ impl GenetController {
 
             let len_status = ((RX_BUF_LENGTH as u32) << DMA_BUFLENGTH_SHIFT) | DMA_OWN;
             self.write_reg(desc_offset + DMA_DESC_LENGTH_STATUS, len_status);
-
-            if i == 0 {
-                crate::println!("  DESC[0] addr: 0x{:08X}", buffer_addr);
-            }
         }
     }
 
@@ -563,7 +626,8 @@ impl GenetController {
         self.write_reg(TDMA_RING16_READ_PTR, 0);
         self.write_reg(TDMA_RING16_WRITE_PTR, 0);
 
-        let end_addr = (RING_SIZE * DMA_DESC_SIZE / 4 - 1) as u32;
+        // End address is in words (4-byte units), not bytes
+        let end_addr = ((RING_SIZE as u32) * DMA_DESC_WORDS) - 1;
         self.write_reg(TDMA_RING16_END_ADDR, end_addr);
 
         let buf_size = ((RING_SIZE as u32) << 16) | (RX_BUF_LENGTH as u32);
@@ -590,7 +654,8 @@ impl GenetController {
         self.write_reg(RDMA_RING16_READ_PTR, 0);
         self.write_reg(RDMA_RING16_WRITE_PTR, 0);
 
-        let end_addr = (RING_SIZE * DMA_DESC_SIZE / 4 - 1) as u32;
+        // End address is in words (4-byte units), not bytes
+        let end_addr = ((RING_SIZE as u32) * DMA_DESC_WORDS) - 1;
         self.write_reg(RDMA_RING16_END_ADDR, end_addr);
 
         let buf_size = ((RING_SIZE as u32) << 16) | (RX_BUF_LENGTH as u32);
@@ -637,14 +702,28 @@ impl GenetController {
         self.write_reg(RDMA_CTRL, rdma_ctrl & !DMA_CTRL_EN);
     }
 
+
     /// Main initialization sequence
+    ///
+    /// Uses a locally-administered MAC address with Raspberry Pi OUI.
+    ///
+    /// Note: In a full system with U-Boot, U-Boot would read the MAC from OTP
+    /// and write it to UMAC_MAC0/MAC1 registers. Since we're bare-metal,
+    /// we use a fixed MAC. For production, implement OTP reading.
+    ///
     /// Source: U-Boot bcmgenet.c::bcmgenet_gmac_eth_start()
-    pub fn initialize(&mut self, mac: &MacAddress) -> Result<(), NetworkError> {
+    pub fn initialize(&mut self) -> Result<(), NetworkError> {
         if !self.is_present() {
             return Err(NetworkError::HardwareNotPresent);
         }
 
         println!("[GENET] Initializing GENET v5...");
+
+        // Use locally-administered MAC address (bit 1 of first byte set)
+        // In a full system, U-Boot reads this from OTP and programs UMAC registers
+        // For bare-metal, we use a fixed MAC with Raspberry Pi OUI
+        let mac = MacAddress::new([0xB8, 0x27, 0xEB, 0xDE, 0xAD, 0x01]);
+        println!("[GENET] Using MAC address: {}", mac);
 
         // Disable all interrupts (GIC level)
         {
@@ -679,11 +758,11 @@ impl GenetController {
             | EXT_RGMII_OOB_OOB_DISABLE;
         self.write_reg(EXT_RGMII_OOB_CTRL, rgmii);
 
-        // Reset UMAC
+        // Reset UMAC (this clears MAC registers)
         self.umac_reset();
 
-        // Set MAC address
-        self.mac_address = *mac;
+        // Reprogram MAC address after reset
+        self.mac_address = mac;
         let bytes = mac.as_bytes();
         let mac0 = (bytes[0] as u32) << 24
             | (bytes[1] as u32) << 16
@@ -812,26 +891,9 @@ impl GenetController {
         self.tx_buffer[..frame.len()].copy_from_slice(frame);
 
         let buffer_addr = self.tx_buffer.as_ptr() as usize;
-        let buffer_end = buffer_addr + frame.len();
 
-        // Flush cache (DC CVAC)
-        const CACHE_LINE_SIZE: usize = 64;
-        let start_aligned = buffer_addr & !(CACHE_LINE_SIZE - 1);
-        let end_aligned = (buffer_end + CACHE_LINE_SIZE - 1) & !(CACHE_LINE_SIZE - 1);
-
-        // SAFETY: Flushing cache for TX buffer
-        unsafe {
-            let mut addr = start_aligned;
-            while addr < end_aligned {
-                core::arch::asm!(
-                    "dc cvac, {addr}",
-                    addr = in(reg) addr,
-                    options(nostack)
-                );
-                addr += CACHE_LINE_SIZE;
-            }
-            core::arch::asm!("dsb sy", options(nostack));
-        }
+        // Flush cache to ensure DMA can see TX buffer contents
+        self.cache_flush(buffer_addr, frame.len());
 
         // Write descriptor
         // Source: U-Boot writes direct pointer, NO DMA_BUS_OFFSET
@@ -962,23 +1024,10 @@ impl GenetController {
         // Read descriptor
         let desc_offset = RDMA_DESC_OFF + (self.rx_index * DMA_DESC_SIZE);
         let length_status = self.read_reg(desc_offset + DMA_DESC_LENGTH_STATUS);
-        let desc_addr_lo = self.read_reg(desc_offset + DMA_DESC_ADDRESS_LO);
 
         let length = ((length_status >> DMA_BUFLENGTH_SHIFT) & DMA_BUFLENGTH_MASK) as usize;
 
-        // DEBUG: Show first packet details (thread-safe)
-        static FIRST_RX: AtomicBool = AtomicBool::new(true);
-        if FIRST_RX.swap(false, Ordering::Relaxed) && length > 0 {
-            crate::println!("[GENET] First RX:");
-            crate::println!("  DESC addr:  0x{:08X}", desc_addr_lo);
-            crate::println!(
-                "  Expected:   0x{:08X}",
-                (self.rxbuffer.as_ptr() as u32) + (self.rx_index * RX_BUF_LENGTH) as u32
-            );
-            crate::println!("  Length:     {}", length);
-        }
-
-        // Validate
+        // Validate received frame length
         if !(MIN_FRAME_SIZE..=RX_BUF_LENGTH).contains(&length) {
             // Skip invalid frame
             self.rx_index = (self.rx_index + 1) % RING_SIZE;
@@ -987,30 +1036,13 @@ impl GenetController {
             return None;
         }
 
-        // Calculate buffer address
+        // Calculate buffer address and invalidate cache to see DMA writes
         let buffer_offset = self.rx_index * RX_BUF_LENGTH;
+        // SAFETY: buffer_offset is guaranteed < RX_TOTAL_BUFSIZE by modulo operation on rx_index
         let buffer_start = unsafe { self.rxbuffer.as_ptr().add(buffer_offset) } as usize;
-        let buffer_end = buffer_start + length;
 
-        // Invalidate cache (DC IVAC)
-        const CACHE_LINE_SIZE: usize = 64;
-        let start_aligned = buffer_start & !(CACHE_LINE_SIZE - 1);
-        let end_aligned = (buffer_end + CACHE_LINE_SIZE - 1) & !(CACHE_LINE_SIZE - 1);
-
-        // SAFETY: Invalidating cache for RX buffer
-        unsafe {
-            core::arch::asm!("dsb sy", options(nostack));
-            let mut addr = start_aligned;
-            while addr < end_aligned {
-                core::arch::asm!(
-                    "dc ivac, {addr}",
-                    addr = in(reg) addr,
-                    options(nostack)
-                );
-                addr += CACHE_LINE_SIZE;
-            }
-            core::arch::asm!("dsb sy", options(nostack));
-        }
+        // Invalidate cache to discard stale data and read DMA writes from DRAM
+        self.cache_invalidate(buffer_start, length);
 
         // Return slice (skip 2-byte padding from RBUF_ALIGN_2B)
         let packet = &self.rxbuffer[buffer_offset + RX_BUF_OFFSET..buffer_offset + length];
@@ -1021,28 +1053,11 @@ impl GenetController {
         // Flush cache for this RX buffer before returning it to hardware
         // Source: U-Boot bcmgenet.c::bcmgenet_gmac_free_pkt()
         let buffer_offset = self.rx_index * RX_BUF_LENGTH;
+        // SAFETY: buffer_offset is guaranteed < RX_TOTAL_BUFSIZE by modulo operation on rx_index
         let buffer_start = unsafe { self.rxbuffer.as_ptr().add(buffer_offset) } as usize;
-        let buffer_end = buffer_start + RX_BUF_LENGTH;
 
-        // Clean cache (DC CVAC) - ensure any CPU writes are flushed
-        const CACHE_LINE_SIZE: usize = 64;
-        let start_aligned = buffer_start & !(CACHE_LINE_SIZE - 1);
-        let end_aligned = (buffer_end + CACHE_LINE_SIZE - 1) & !(CACHE_LINE_SIZE - 1);
-
-        // SAFETY: Flushing cache for RX buffer before returning to hardware
-        unsafe {
-            core::arch::asm!("dsb sy", options(nostack));
-            let mut addr = start_aligned;
-            while addr < end_aligned {
-                core::arch::asm!(
-                    "dc cvac, {addr}",
-                    addr = in(reg) addr,
-                    options(nostack)
-                );
-                addr += CACHE_LINE_SIZE;
-            }
-            core::arch::asm!("dsb sy", options(nostack));
-        }
+        // Flush cache to ensure any CPU writes are visible to DMA
+        self.cache_flush(buffer_start, RX_BUF_LENGTH);
 
         // Advance to next descriptor
         self.rx_index = (self.rx_index + 1) % RING_SIZE;
@@ -1063,8 +1078,8 @@ impl NetworkDevice for GenetController {
     }
 
     fn init(&mut self) -> Result<(), NetworkError> {
-        let mac = MacAddress::new([0xB8, 0x27, 0xEB, 0xDE, 0xAD, 0x01]);
-        self.initialize(&mac)
+        // MAC address is read from hardware (firmware programs it from OTP)
+        self.initialize()
     }
 
     fn transmit(&mut self, frame: &[u8]) -> Result<(), NetworkError> {

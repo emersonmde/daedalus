@@ -8,6 +8,9 @@ use crate::println;
 use core::arch::asm;
 use core::sync::atomic::{AtomicBool, Ordering};
 
+/// ARM instruction size in bytes (all ARMv8-A instructions are 32-bit/4-byte)
+const ARM_INSTRUCTION_SIZE: u64 = 4;
+
 /// Global flag indicating we're probing hardware (set during hardware detection)
 /// When true, Data Abort exceptions return 0 instead of panicking
 static PROBING_HARDWARE: AtomicBool = AtomicBool::new(false);
@@ -292,9 +295,9 @@ extern "C" fn exception_handler_el1_spx(ctx: &mut ExceptionContext, exc_type: u6
             // Modify exception context to skip faulting instruction and return 0
             // We have &mut access to the context, which will be restored by assembly (RESTORE_CONTEXT).
             // This allows MMIO probe to recover from faults gracefully:
-            // - ELR += 4 skips the faulting LDR instruction (ARMv8 fixed 32-bit instructions)
+            // - ELR += ARM_INSTRUCTION_SIZE skips the faulting LDR instruction
             // - x0 = 0 provides a safe return value indicating hardware not present
-            ctx.elr_el1 += 4; // Skip faulting instruction
+            ctx.elr_el1 += ARM_INSTRUCTION_SIZE;
             ctx.x0 = 0; // Return 0 for failed read
             return; // Return without panicking
         }
@@ -359,20 +362,6 @@ fn handle_irq() {
         return;
     }
 
-    // CRITICAL: Always log GENET interrupts (these should NEVER fire - they're masked!)
-    // Log regardless of count limits to catch interrupt storm
-    if int_id == crate::drivers::gic::irq::GENET_0 || int_id == crate::drivers::gic::irq::GENET_1 {
-        static GENET_IRQ_COUNT: core::sync::atomic::AtomicU32 =
-            core::sync::atomic::AtomicU32::new(0);
-        let count = GENET_IRQ_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        crate::println!(
-            "[IRQ] !!! GENET INTERRUPT {} FIRED !!! (count: {})",
-            int_id,
-            count + 1
-        );
-        crate::println!("[IRQ] This should not happen - GENET interrupts are masked!");
-    }
-
     // Route to appropriate handler based on interrupt ID
     // This runs without holding the GIC lock, allowing other code to query GIC if needed
     match int_id {
@@ -381,9 +370,18 @@ fn handle_irq() {
             crate::drivers::uart::handle_interrupt();
         }
         crate::drivers::gic::irq::GENET_0 | crate::drivers::gic::irq::GENET_1 => {
-            // GENET interrupts - these should be masked!
-            // Just acknowledge and ignore for now
-            crate::println!("[IRQ] Ignoring GENET interrupt {}", int_id);
+            // CRITICAL: GENET interrupts should NEVER fire - they're masked!
+            // Always log these regardless of count limits to catch interrupt storms
+            static GENET_IRQ_COUNT: core::sync::atomic::AtomicU32 =
+                core::sync::atomic::AtomicU32::new(0);
+            let count = GENET_IRQ_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            crate::println!(
+                "[IRQ] !!! GENET INTERRUPT {} FIRED !!! (count: {})",
+                int_id,
+                count + 1
+            );
+            crate::println!("[IRQ] This should not happen - GENET interrupts are masked!");
+            // Just acknowledge and return (EOI happens below)
         }
         _ => {
             // Unknown interrupt - log it for debugging (limit to first few to avoid spam)
@@ -473,11 +471,14 @@ pub fn init() {
 ///
 /// # Safety
 /// This function uses exception handling to recover from invalid memory access.
-/// Caller must ensure the address is aligned for u32 access.
+///
+/// # Requirements
+/// - Address must be 4-byte aligned (ARMv8-A requires aligned access for LDR instruction)
+/// - Misaligned addresses will cause Alignment Fault instead of Data Abort
 ///
 /// # Example
 /// ```ignore
-/// let version = probe_read_u32(0xFD580000); // GENET version register
+/// let version = probe_read_u32(0xFD580000); // GENET version register (aligned)
 /// if version != 0 {
 ///     // Hardware is present
 /// }
@@ -489,11 +490,12 @@ pub fn probe_read_u32(addr: usize) -> u32 {
     // Attempt to read - if Data Abort occurs, exception handler will:
     // 1. Clear PROBING_HARDWARE flag
     // 2. Set return value (x0) to 0
-    // 3. Skip past the faulting instruction (ELR += 4)
+    // 3. Skip past the faulting instruction (ELR += ARM_INSTRUCTION_SIZE)
     // 4. Return normally
     //
-    // SAFETY: We set PROBING_HARDWARE flag so exception handler knows to recover.
+    // SAFETY: We set PROBING_HARDWARE flag so exception handler knows to recover from Data Abort.
     // If hardware not present, exception handler modifies return value to 0.
+    // Address must be 4-byte aligned (caller's responsibility).
     // read_volatile is required to prevent compiler optimization.
     let value = unsafe { core::ptr::read_volatile(addr as *const u32) };
 

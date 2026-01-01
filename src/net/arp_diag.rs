@@ -176,8 +176,9 @@ pub fn run_arp_probe_diagnostic() -> bool {
         let mut iteration_packet_count = 0;
 
         loop {
+            // Check if packet available
             let Some(rx_frame_data) = genet.receive() else {
-                break; // No more packets
+                break; // No more packets in ring
             };
 
             total_packets_received += 1;
@@ -251,22 +252,28 @@ pub fn run_arp_probe_diagnostic() -> bool {
                     println!("│ └───────────────────────────────────────────────────");
                 }
             } else {
-                // Just parse to check for ARP reply, don't print details
-                if let Some(rx_frame) = EthernetFrame::parse(rx_frame_data)
-                    && rx_frame.ethertype == ETHERTYPE_ARP
-                    && let Some(arp_pkt) = ArpPacket::parse(rx_frame.payload)
-                    && arp_pkt.operation == ArpOperation::Reply
-                {
-                    println!(
-                        "│ Packet #{}: ✓ ARP REPLY from {}.{}.{}.{} at {}",
-                        total_packets_received,
-                        arp_pkt.sender_ip[0],
-                        arp_pkt.sender_ip[1],
-                        arp_pkt.sender_ip[2],
-                        arp_pkt.sender_ip[3],
-                        arp_pkt.sender_mac
-                    );
-                    arp_reply_received = true;
+                // Just parse to check for ARP reply (don't print details for packets > 3)
+                // Parse Ethernet frame
+                if let Some(rx_frame) = EthernetFrame::parse(rx_frame_data) {
+                    // Check if it's an ARP packet
+                    if rx_frame.ethertype == ETHERTYPE_ARP {
+                        // Parse ARP packet
+                        if let Some(arp_pkt) = ArpPacket::parse(rx_frame.payload) {
+                            // Check if it's a reply
+                            if arp_pkt.operation == ArpOperation::Reply {
+                                println!(
+                                    "│ Packet #{}: ✓ ARP REPLY from {}.{}.{}.{} at {}",
+                                    total_packets_received,
+                                    arp_pkt.sender_ip[0],
+                                    arp_pkt.sender_ip[1],
+                                    arp_pkt.sender_ip[2],
+                                    arp_pkt.sender_ip[3],
+                                    arp_pkt.sender_mac
+                                );
+                                arp_reply_received = true;
+                            }
+                        }
+                    }
                 }
             }
 
