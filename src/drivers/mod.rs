@@ -6,12 +6,14 @@
 //! - `net`: Network device drivers
 //! - `irqchip`: Interrupt controllers
 //! - `clocksource`: Timers and clock sources
+//! - `mailbox`: VideoCore mailbox interface
 //!
 //! See ADR-004 for filesystem structure rationale.
 
 pub mod clocksource;
 pub mod gpio;
 pub mod irqchip;
+pub mod mailbox;
 pub mod net;
 pub mod tty;
 

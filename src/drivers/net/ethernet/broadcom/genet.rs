@@ -340,6 +340,9 @@ pub struct GenetController {
 #[allow(clippy::new_without_default)] // Hardware controllers shouldn't have Default - explicit new() is clearer
 impl GenetController {
     /// Create new GENET controller instance
+    ///
+    /// Note: MAC address is initialized to zero and will be set during init()
+    /// by querying the VideoCore firmware via mailbox.
     pub fn new() -> Self {
         Self {
             base_addr: GENET_BASE,
@@ -349,7 +352,7 @@ impl GenetController {
             rx_c_index: 0,
             tx_buffer: [0u8; MAX_FRAME_SIZE],
             rxbuffer: Box::new([0u8; RX_TOTAL_BUFSIZE]),
-            mac_address: MacAddress::new([0xB8, 0x27, 0xEB, 0xDE, 0xAD, 0x01]),
+            mac_address: MacAddress::new([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
             initialized: false,
         }
     }
@@ -702,14 +705,10 @@ impl GenetController {
         self.write_reg(RDMA_CTRL, rdma_ctrl & !DMA_CTRL_EN);
     }
 
-
     /// Main initialization sequence
     ///
-    /// Uses a locally-administered MAC address with Raspberry Pi OUI.
-    ///
-    /// Note: In a full system with U-Boot, U-Boot would read the MAC from OTP
-    /// and write it to UMAC_MAC0/MAC1 registers. Since we're bare-metal,
-    /// we use a fixed MAC. For production, implement OTP reading.
+    /// Queries the MAC address from VideoCore firmware (stored in OTP during manufacturing)
+    /// and configures the GENET controller.
     ///
     /// Source: U-Boot bcmgenet.c::bcmgenet_gmac_eth_start()
     pub fn initialize(&mut self) -> Result<(), NetworkError> {
@@ -719,11 +718,15 @@ impl GenetController {
 
         println!("[GENET] Initializing GENET v5...");
 
-        // Use locally-administered MAC address (bit 1 of first byte set)
-        // In a full system, U-Boot reads this from OTP and programs UMAC registers
-        // For bare-metal, we use a fixed MAC with Raspberry Pi OUI
-        let mac = MacAddress::new([0xB8, 0x27, 0xEB, 0xDE, 0xAD, 0x01]);
-        println!("[GENET] Using MAC address: {}", mac);
+        // Query MAC address from VideoCore firmware (reads from OTP)
+        // Source: U-Boot board/raspberrypi/rpi/rpi.c::set_usbethaddr()
+        use crate::drivers::mailbox::PropertyMailbox;
+        let mailbox = PropertyMailbox::new();
+        let mac_bytes = mailbox
+            .get_mac_address()
+            .map_err(|_| NetworkError::HardwareNotPresent)?;
+        let mac = MacAddress::new(mac_bytes);
+        println!("[GENET] MAC address from OTP: {}", mac);
 
         // Disable all interrupts (GIC level)
         {
