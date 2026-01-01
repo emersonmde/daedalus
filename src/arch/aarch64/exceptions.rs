@@ -333,15 +333,6 @@ extern "C" fn exception_handler_lower_aa32(ctx: &ExceptionContext, exc_type: u64
 /// Handle an IRQ by reading the interrupt ID from the GIC and routing to
 /// the appropriate peripheral handler.
 fn handle_irq() {
-    // Track IRQ entry for debugging interrupt storms
-    static IRQ_ENTRY_COUNT: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
-    let entry_count = IRQ_ENTRY_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-
-    // Log first few IRQ entries to detect storms early (before any locks)
-    if entry_count < 5 {
-        crate::println!("[IRQ] Handler entry #{}", entry_count + 1);
-    }
-
     // Acknowledge the interrupt and get its ID
     // Drop the lock immediately after acknowledging
     let int_id = {
@@ -349,15 +340,13 @@ fn handle_irq() {
         gic.acknowledge_interrupt()
     }; // GIC lock dropped here
 
-    // Log interrupt ID for first few entries
-    if entry_count < 5 {
-        crate::println!("[IRQ] Interrupt ID: {}", int_id);
-    }
-
     // Spurious interrupt check (ID 1023 means no pending interrupt)
     if int_id == 1023 {
-        if entry_count < 5 {
-            crate::println!("[IRQ] Spurious interrupt (ID 1023)");
+        static SPURIOUS_COUNT: core::sync::atomic::AtomicU32 =
+            core::sync::atomic::AtomicU32::new(0);
+        let count = SPURIOUS_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        if count < 5 {
+            crate::println!("[IRQ] Spurious interrupt (ID 1023, count: {})", count + 1);
         }
         return;
     }
@@ -366,7 +355,6 @@ fn handle_irq() {
     // This runs without holding the GIC lock, allowing other code to query GIC if needed
     match int_id {
         crate::drivers::gic::irq::UART0 => {
-            // UART0 interrupt
             crate::drivers::uart::handle_interrupt();
         }
         crate::drivers::gic::irq::GENET_0 | crate::drivers::gic::irq::GENET_1 => {

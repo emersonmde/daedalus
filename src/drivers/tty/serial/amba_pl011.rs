@@ -4,6 +4,7 @@
 //! Supports both transmit and receive operations with proper FIFO handling.
 
 use core::fmt;
+use core::sync::atomic::{AtomicUsize, Ordering};
 use lazy_static::lazy_static;
 use spin::Mutex;
 use volatile::Volatile;
@@ -44,12 +45,117 @@ mod pl011_flags {
     pub const MIS_RTMIS: u32 = 1 << 6; // Receive timeout masked interrupt status
 
     // Interrupt Clear Register (ICR) - Section 3.3.13
-    #[allow(dead_code)]
     pub const ICR_RXIC: u32 = 1 << 4; // Receive interrupt clear
-    #[allow(dead_code)]
     pub const ICR_RTIC: u32 = 1 << 6; // Receive timeout interrupt clear
     pub const ICR_ALL: u32 = 0x7FF; // Clear all interrupts
+
+    // Interrupt FIFO Level Select Register (IFLS) - Section 3.3.10
+    // Source: ARM PrimeCell UART PL011 TRM
+    // RXIFLSEL (bits 5:3) - Receive interrupt FIFO level
+    pub const IFLS_RXIFLSEL_1_8: u32 = 0b000 << 3; // RX FIFO ≥ 1/8 full (2 bytes)
+    #[allow(dead_code)]
+    pub const IFLS_RXIFLSEL_1_4: u32 = 0b001 << 3; // RX FIFO ≥ 1/4 full (4 bytes)
+    #[allow(dead_code)]
+    pub const IFLS_RXIFLSEL_1_2: u32 = 0b010 << 3; // RX FIFO ≥ 1/2 full (8 bytes)
+    #[allow(dead_code)]
+    pub const IFLS_RXIFLSEL_3_4: u32 = 0b011 << 3; // RX FIFO ≥ 3/4 full (12 bytes)
+    #[allow(dead_code)]
+    pub const IFLS_RXIFLSEL_7_8: u32 = 0b100 << 3; // RX FIFO ≥ 7/8 full (14 bytes)
+
+    // TXIFLSEL (bits 2:0) - Transmit interrupt FIFO level
+    pub const IFLS_TXIFLSEL_1_8: u32 = 0b000; // TX FIFO ≤ 1/8 full (2 bytes)
+
+    // Combined RX-only configuration (recommend 1/8 for low latency)
+    pub const IFLS_RX_1_8: u32 = IFLS_RXIFLSEL_1_8 | IFLS_TXIFLSEL_1_8;
 }
+
+/// Lock-free SPSC ring buffer for UART RX data
+///
+/// Single producer: Interrupt handler (writes bytes)
+/// Single consumer: Shell read_line() (reads bytes)
+struct RxRingBuffer {
+    buffer: [u8; Self::CAPACITY],
+    head: AtomicUsize, // Write index (producer only)
+    tail: AtomicUsize, // Read index (consumer only)
+}
+
+impl RxRingBuffer {
+    /// Buffer capacity - MUST be power of 2 for efficient modulo
+    pub const CAPACITY: usize = 512;
+
+    /// Bit mask for wrapping indices
+    const MASK: usize = Self::CAPACITY - 1;
+
+    pub const fn new() -> Self {
+        Self {
+            buffer: [0u8; Self::CAPACITY],
+            head: AtomicUsize::new(0),
+            tail: AtomicUsize::new(0),
+        }
+    }
+
+    /// Enqueue a byte (called from interrupt handler)
+    /// Returns false if buffer full
+    pub fn enqueue(&self, byte: u8) -> bool {
+        let head = self.head.load(Ordering::Relaxed);
+        let tail = self.tail.load(Ordering::Acquire);
+
+        let next_head = (head + 1) & Self::MASK;
+
+        if next_head == tail {
+            return false;
+        }
+
+        // SAFETY: head < CAPACITY due to masking, and this is the only writer
+        unsafe {
+            let buffer_ptr = self.buffer.as_ptr() as *mut u8;
+            buffer_ptr.add(head).write(byte);
+        }
+
+        self.head.store(next_head, Ordering::Release);
+        true
+    }
+
+    /// Dequeue a byte (called from shell)
+    /// Returns Some(byte) if available, None if empty
+    pub fn dequeue(&self) -> Option<u8> {
+        let tail = self.tail.load(Ordering::Relaxed);
+        let head = self.head.load(Ordering::Acquire);
+
+        if head == tail {
+            return None;
+        }
+
+        // SAFETY: tail < CAPACITY due to masking, and this is the only reader
+        let byte = unsafe {
+            let buffer_ptr = self.buffer.as_ptr();
+            buffer_ptr.add(tail).read()
+        };
+
+        let next_tail = (tail + 1) & Self::MASK;
+
+        self.tail.store(next_tail, Ordering::Release);
+
+        Some(byte)
+    }
+
+    /// Check if buffer is empty (racy but safe for diagnostics)
+    #[allow(dead_code)]
+    pub fn is_empty(&self) -> bool {
+        let tail = self.tail.load(Ordering::Relaxed);
+        let head = self.head.load(Ordering::Relaxed);
+        head == tail
+    }
+}
+
+// SAFETY: Safe to share across threads (interrupt and main):
+// - Single producer modifies head, single consumer modifies tail (no data races)
+// - Acquire/Release ordering prevents reordering across synchronization points
+// - Buffer indices are always in bounds due to power-of-2 masking
+unsafe impl Sync for RxRingBuffer {}
+
+/// Global RX ring buffer (interrupt handler → shell)
+static RX_BUFFER: RxRingBuffer = RxRingBuffer::new();
 
 lazy_static! {
     pub static ref WRITER: Mutex<UartWriter> = Mutex::new(UartWriter::new());
@@ -66,7 +172,7 @@ struct Pl011Registers {
     fbrd: Volatile<u32>, // 0x28 - Fractional Baud Rate Divisor
     lcrh: Volatile<u32>, // 0x2C - Line Control Register
     cr: Volatile<u32>,   // 0x30 - Control Register
-    _rsv2: [u32; 1],
+    ifls: Volatile<u32>, // 0x34 - Interrupt FIFO Level Select
     imsc: Volatile<u32>, // 0x38 - Interrupt Mask Set/Clear
     _rsv3: [u32; 1],
     mis: Volatile<u32>, // 0x40 - Masked Interrupt Status
@@ -232,6 +338,22 @@ impl UartWriter {
         imsc &= !(pl011_flags::IMSC_RXIM | pl011_flags::IMSC_RTIM);
         self.registers.imsc.write(imsc);
     }
+
+    /// Configure RX FIFO interrupt threshold to 1/8 full (2 bytes)
+    pub fn set_rx_fifo_threshold(&mut self) {
+        if !self.initialized {
+            self.init();
+        }
+
+        self.registers.ifls.write(pl011_flags::IFLS_RX_1_8);
+    }
+
+    /// Clear pending RX interrupts
+    pub fn clear_rx_interrupts(&mut self) {
+        self.registers
+            .icr
+            .write(pl011_flags::ICR_RXIC | pl011_flags::ICR_RTIC);
+    }
 }
 
 impl fmt::Write for UartWriter {
@@ -243,36 +365,47 @@ impl fmt::Write for UartWriter {
 
 /// Handle UART receive interrupt
 ///
-/// Called by the IRQ handler when a UART interrupt fires.
-/// Reads all available bytes from the FIFO and clears the interrupt.
+/// Drains FIFO and enqueues bytes to ring buffer.
 pub fn handle_interrupt() {
-    // CRITICAL: Must drain FIFO to prevent interrupt storm!
-    // If we only clear interrupt status without reading bytes, UART will immediately
-    // re-assert interrupt (data still available), causing infinite IRQ loop.
-    //
-    // We can't acquire WRITER lock here (shell holds it while polling), so we
-    // read and discard bytes. Shell's polling will see empty FIFO and wait.
-    // This is safe because shell uses blocking read_byte() which polls FIFO status.
-    use core::ptr::{read_volatile, write_volatile};
-    const UART_BASE: usize = 0xFE201000;
-    const DR_OFFSET: usize = 0x00; // Data Register
-    const FR_OFFSET: usize = 0x18; // Flag Register
-    const ICR_OFFSET: usize = 0x44; // Interrupt Clear Register
-    const FR_RXFE: u32 = 1 << 4; // RX FIFO Empty flag
+    // Drain FIFO and clear interrupt while holding lock
+    let bytes_dropped = {
+        let mut writer = WRITER.lock();
+        let mut bytes_dropped = 0;
 
-    // SAFETY: Reading/writing UART MMIO registers is safe because:
-    // 1. UART_BASE is the correct address for PL011 on BCM2711
-    // 2. FR is read-only status register, DR is data register (read clears FIFO entry)
-    // 3. ICR is write-only, writing 1s clears interrupt bits
-    // 4. This is called from IRQ context, no other safety constraints
-    unsafe {
-        // Drain all bytes from RX FIFO to prevent interrupt re-assertion
-        while (read_volatile((UART_BASE + FR_OFFSET) as *const u32) & FR_RXFE) == 0 {
-            let _ = read_volatile((UART_BASE + DR_OFFSET) as *const u32);
-            // Byte discarded - shell will timeout and retry
+        while (writer.registers.fr.read() & pl011_flags::FR_RXFE) == 0 {
+            let byte = (writer.registers.dr.read() & pl011_flags::DR_DATA_MASK) as u8;
+
+            if !RX_BUFFER.enqueue(byte) {
+                bytes_dropped += 1;
+            }
         }
 
-        // Clear interrupt status bits
-        write_volatile((UART_BASE + ICR_OFFSET) as *mut u32, (1 << 4) | (1 << 6));
+        writer
+            .registers
+            .icr
+            .write(pl011_flags::ICR_RXIC | pl011_flags::ICR_RTIC);
+
+        bytes_dropped
+    }; // Lock dropped here - safe to call println! now
+
+    // Report buffer overflows (rare, rate-limited)
+    // IMPORTANT: Must be outside the WRITER lock to avoid deadlock
+    if bytes_dropped > 0 {
+        static OVERFLOW_COUNT: core::sync::atomic::AtomicU32 =
+            core::sync::atomic::AtomicU32::new(0);
+        let count = OVERFLOW_COUNT.fetch_add(1, Ordering::Relaxed);
+
+        if count < 5 {
+            crate::println!(
+                "[UART] RX buffer overflow: {} bytes dropped (event #{})",
+                bytes_dropped,
+                count + 1
+            );
+        }
     }
+}
+
+/// Read a byte from RX ring buffer (non-blocking)
+pub fn read_rx_byte() -> Option<u8> {
+    RX_BUFFER.dequeue()
 }

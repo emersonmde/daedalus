@@ -186,9 +186,20 @@ pub fn init(dtb_ptr: *const u8) {
     }
     println!("[  OK  ] GIC-400 interrupt controller initialized");
 
-    // TODO: Enable UART RX interrupts for interrupt-driven I/O
-    // Currently disabled because polling-only mode is used
-    // drivers::uart::WRITER.lock().enable_rx_interrupt();
+    // Configure and enable UART RX interrupts
+    {
+        let mut uart = drivers::uart::WRITER.lock();
+
+        // Set RX FIFO threshold to 1/8 full (2 bytes) for low latency
+        uart.set_rx_fifo_threshold();
+
+        // Clear any pending interrupts from firmware/bootloader
+        uart.clear_rx_interrupts();
+
+        // Enable RX and RX timeout interrupts in UART
+        uart.enable_rx_interrupt();
+    }
+    println!("[  OK  ] UART RX interrupts enabled (interrupt-driven I/O)");
 
     // Enable IRQs at CPU level
     enable_irqs();

@@ -6,7 +6,6 @@
 use crate::drivers::genet::GENET;
 use crate::drivers::gpio::{Function, Gpio, Pull};
 use crate::drivers::timer::SystemTimer;
-use crate::drivers::uart::WRITER;
 use crate::{ALLOCATOR, print, println};
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -58,34 +57,31 @@ fn read_line(buffer: &mut [u8]) -> usize {
     let mut pos = 0;
 
     loop {
-        let ch = {
-            let mut writer = WRITER.lock();
-            writer.read_byte()
+        let ch = loop {
+            if let Some(byte) = crate::drivers::uart::read_rx_byte() {
+                break byte;
+            }
+            core::hint::spin_loop();
         };
 
         match ch {
-            // Enter (CR or LF)
             b'\r' | b'\n' => {
                 println!();
                 return pos;
             }
 
-            // Backspace or Delete
             b'\x7f' | b'\x08' => {
                 if pos > 0 {
                     pos -= 1;
-                    // Move cursor back, write space, move cursor back again
                     print!("\x08 \x08");
                 }
             }
 
-            // Ctrl-C
             b'\x03' => {
                 println!("^C");
                 return 0;
             }
 
-            // Ctrl-U (clear line)
             b'\x15' => {
                 while pos > 0 {
                     print!("\x08 \x08");
@@ -93,17 +89,14 @@ fn read_line(buffer: &mut [u8]) -> usize {
                 }
             }
 
-            // Printable ASCII
             0x20..=0x7e => {
                 if pos < buffer.len() {
                     buffer[pos] = ch;
                     pos += 1;
-                    // Echo the character
                     print!("{}", ch as char);
                 }
             }
 
-            // Ignore other control characters
             _ => {}
         }
     }
@@ -290,12 +283,10 @@ fn execute_command(cmd: Command) {
 
             println!();
 
-            // GIC status (just check if it's initialized by trying to read a register)
+            // GIC status
+            // Note: We don't lock GIC here to avoid potential deadlock if interrupt fires
+            // (IRQ handler needs GIC lock to acknowledge/EOI interrupts)
             println!("GIC-400 Interrupt Controller:");
-            let gic = crate::drivers::gic::GIC.lock();
-            // Note: We can't easily read "enabled interrupts" without adding accessors,
-            // but we can show that it's initialized since we got the lock
-            drop(gic);
             println!("  Status: Initialized");
             println!("  UART0 interrupt: ID {}", crate::drivers::gic::irq::UART0);
 
