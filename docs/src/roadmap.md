@@ -13,7 +13,7 @@ DaedalusOS development phases and milestones.
 ## Current Status
 
 **Phase 4 In Progress** 🔄 - Networking Stack
-**Milestone #12 Complete** ✅ - Ethernet Driver Foundation
+**Milestone #13 Complete** ✅ - Frame Transmission & Reception
 - Working REPL with command parsing and shell history
 - Exception vector table with register dumps
 - 8 MB heap with bump allocator
@@ -24,11 +24,13 @@ DaedalusOS development phases and milestones.
 - Caching enabled for performance
 - GPIO driver with BCM2711 pull-up/down support
 - Shell commands for GPIO pin control (mode, pull, set, get, toggle)
-- GENET Ethernet controller hardware driver (detection, MDIO, PHY)
+- GENET Ethernet controller with full TX/RX capability
+- VideoCore mailbox driver for querying firmware properties
+- MAC address retrieved from OTP (One-Time Programmable memory)
 - Ethernet and ARP protocol structures with 30 unit tests
-- Shell command: `eth-diag` (hardware diagnostics)
+- Shell commands: `eth-diag` (diagnostics), `arp-probe` (TX/RX test)
 
-**Next**: Milestone #13 - Frame transmission and reception
+**Next**: Milestone #14 - Interrupt-driven networking
 
 ## Phase 1: Interactive Shell ✅ COMPLETE
 
@@ -109,12 +111,15 @@ DaedalusOS development phases and milestones.
 - ✅ Comprehensive documentation (hardware, protocols, verification)
 - ✅ Shell command: `eth-diag` (hardware diagnostics)
 
-**Milestone #13**: Frame Transmission & Reception
-- Frame TX implementation (simple polling mode)
-- Frame RX implementation (polling)
-- MAC address configuration
-- Basic frame validation
-- Shell commands: `eth-status`, `eth-send`
+**Milestone #13**: Frame Transmission & Reception ✅ COMPLETE
+- ✅ Frame TX implementation (polling mode with DMA descriptors)
+- ✅ Frame RX implementation (polling with ring buffers)
+- ✅ VideoCore mailbox driver for firmware communication
+- ✅ MAC address queried from OTP via mailbox (real hardware MAC)
+- ✅ Bus address translation (ARM physical → VideoCore bus)
+- ✅ Cache-line aligned message buffers (64-byte alignment)
+- ✅ Frame validation and error handling
+- ✅ Shell command: `arp-probe` (comprehensive TX/RX diagnostics)
 
 **Milestone #14**: Interrupt-Driven Networking
 - Register GENET interrupts with GIC

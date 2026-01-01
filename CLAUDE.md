@@ -8,8 +8,8 @@
   - **Future**: Pi 5 support when QEMU adds BCM2712/RP1 emulation
 - **Language**: Rust 2024, nightly, `#![no_std]` bare-metal
 - **Architecture**: AArch64 (ARMv8-A)
-- **Current State**: Phase 4 in progress - Ethernet driver foundation complete
-- **Next Milestone**: Frame TX/RX (Milestone #13)
+- **Current State**: Phase 4 in progress - Frame TX/RX complete, MAC from OTP
+- **Next Milestone**: Interrupt-driven networking (Milestone #14)
 - **End Goal**: Network-enabled device for remote GPIO control via HTTP
 
 ## Dependency Philosophy
@@ -236,6 +236,7 @@ All documentation is in **`docs/src/`** organized as reference wiki (not linear)
 - **GPIO**: `docs/src/hardware/gpio.md` (BCM2711 GPIO driver)
 - **Timer**: `docs/src/hardware/timer.md` (system timer with delays)
 - **GIC interrupts**: `docs/src/hardware/gic.md` (GIC-400 interrupt controller)
+- **Mailbox**: Mailbox interface in `docs/src/hardware/memory-map.md` (VideoCore communication)
 - **Ethernet (GENET)**: `docs/src/hardware/genet.md` (GENET v5, BCM54213PE PHY, register reference)
 - **Ethernet (Verification)**: `docs/src/hardware/genet-verification.md` (constant verification, sources)
 
@@ -277,6 +278,8 @@ All documentation is in **`docs/src/`** organized as reference wiki (not linear)
 | **UART clock** | 54 MHz | Pi 4 specific (Pi 3 = 48 MHz) |
 | **GPIO base** | `0xFE200000` | GPIO controller |
 | **GENET base** | `0xFD580000` | Ethernet MAC controller |
+| **Mailbox base** | `0xFE00B880` | VideoCore mailbox |
+| **VC bus offset** | `0xC0000000` | ARM phys → VC bus translation |
 | **GIC distributor** | `0xFF841000` | Interrupt controller |
 | **System timer** | `0xFE003000` | Timing functions |
 
@@ -332,6 +335,10 @@ src/
 │   │   └── amba_pl011.rs  # PL011 UART driver (TX/RX)
 │   ├── gpio/
 │   │   └── bcm2711.rs   # BCM2711 GPIO driver
+│   ├── mailbox/
+│   │   ├── mod.rs       # Mailbox subsystem
+│   │   ├── videocore.rs # Low-level mailbox hardware
+│   │   └── property.rs  # Property channel (MAC, serial, etc.)
 │   ├── net/
 │   │   ├── netdev.rs    # NetworkDevice trait
 │   │   └── ethernet/broadcom/
@@ -430,9 +437,11 @@ Triggers include:
 
 1. **MMIO Base**: Pi 4 uses `0xFE000000`, NOT `0x3F000000` (Pi 3)
 2. **UART Clock**: 54 MHz on Pi 4, NOT 48 MHz (affects baud rate)
-3. **Exception Level**: QEMU boots EL2, hardware boots EL1 (affects register access)
-4. **QEMU Version**: Must be 9.0+ for raspi4b machine type
-5. **Stack Alignment**: Must be 16-byte aligned (ARM AAPCS)
+3. **VideoCore Bus Address**: Add `0xC0000000` to ARM physical addresses when passing to mailbox
+4. **Mailbox Buffer Alignment**: Must be 64-byte aligned (cache line size), not just 16-byte
+5. **Exception Level**: Kernel always runs at EL1 (boot.s drops from EL2 if needed)
+6. **QEMU Version**: Must be 9.0+ for raspi4b machine type
+7. **Stack Alignment**: Must be 16-byte aligned (ARM AAPCS)
 
 ## Getting Help
 
