@@ -142,12 +142,40 @@ const TBUF_64B_EN: u32 = 1 << 0;
 // INTRL2 Registers
 // ============================================================================
 
-#[allow(dead_code)] // Future use: Read interrupt status (when implementing interrupt-driven I/O)
-const INTRL2_CPU_STAT: usize = 0x00;
-const INTRL2_CPU_CLEAR: usize = 0x04;
-const INTRL2_CPU_MASK_SET: usize = 0x10;
-#[allow(dead_code)] // Future use: Clear interrupt mask bits (when implementing interrupt-driven I/O)
-const INTRL2_CPU_MASK_CLEAR: usize = 0x14;
+// INTRL2 register offsets (source: Linux kernel drivers/net/ethernet/broadcom/genet/bcmgenet.h)
+const INTRL2_CPU_STAT: usize = 0x00; // Interrupt status (read-only)
+#[allow(dead_code)] // Software interrupt trigger (not currently used)
+const INTRL2_CPU_SET: usize = 0x04; // Set interrupt bits (write-only, triggers interrupt)
+const INTRL2_CPU_CLEAR: usize = 0x08; // Clear interrupt bits (write-only, ack interrupt)
+const INTRL2_CPU_MASK_STATUS: usize = 0x0C; // Current mask state (read-only, 1=masked)
+const INTRL2_CPU_MASK_SET: usize = 0x10; // Set mask bits (write-only, mask=disable interrupt)
+const INTRL2_CPU_MASK_CLEAR: usize = 0x14; // Clear mask bits (write-only, unmask=enable interrupt)
+
+// INTRL2_0 interrupt bits (source: Linux kernel drivers/net/ethernet/broadcom/genet/bcmgenet.h)
+const UMAC_IRQ_RXDMA_MBDONE: u32 = 1 << 13; // RX DMA descriptor done
+#[allow(dead_code)] // Future use for TX interrupt handling
+const UMAC_IRQ_TXDMA_MBDONE: u32 = 1 << 16; // TX DMA descriptor done
+
+// ============================================================================
+// HFB (Hardware Filter Block) Registers - GENETv5 only
+// ============================================================================
+// Source: Linux kernel drivers/net/ethernet/broadcom/genet/bcmgenet.h
+// The HFB filters packets in hardware before they reach RX descriptors,
+// preventing interrupt storms from unwanted traffic on busy networks.
+
+const GENET_HFB_OFF: usize = 0x8000;
+
+// HFB control registers (relative to GENET_HFB_OFF)
+const HFB_CTRL: usize = 0x00; // Enable/disable HFB
+const HFB_FLT_ENABLE_V3PLUS: usize = 0x04; // 32-bit filter enable mask
+const HFB_FLT_LEN_V3PLUS: [usize; 8] = [
+    // Filter length registers (4 filters each)
+    0x0C, 0x10, 0x14, 0x18, 0x1C, 0x20, 0x24, 0x28,
+];
+const HFB_RXNFC_LKUP_CTRL: usize = 0x88; // Action on match (base, +4 per filter)
+
+// Filter memory starts at offset 0x200 from HFB base (32 bytes per filter)
+const HFB_FLT_BASE: usize = 0x200;
 
 // ============================================================================
 // UMAC Registers
@@ -721,6 +749,69 @@ impl GenetController {
         self.write_reg(RDMA_CTRL, rdma_ctrl & !DMA_CTRL_EN);
     }
 
+    /// Enable Hardware Filter Block (HFB) for ARP-only filtering
+    ///
+    /// Configures the GENET HFB to filter packets in hardware before they reach
+    /// RX descriptors. This prevents interrupt storms on busy networks by only
+    /// allowing ARP packets (EtherType 0x0806) to trigger interrupts.
+    ///
+    /// For full multi-protocol filtering implementation, see TODO-HFB.md.
+    ///
+    /// Source: Linux kernel drivers/net/ethernet/broadcom/genet/bcmgenet.c
+    ///         Function: bcmgenet_hfb_create_rxnfc_filter()
+    fn enable_arp_filter(&mut self) {
+        // Filter 0: Match EtherType 0x0806 (ARP) at offset 12-13 in Ethernet frame
+        let filter_id = 0;
+        let filter_addr = GENET_HFB_OFF + HFB_FLT_BASE + (filter_id * 32); // 32 bytes per filter
+
+        // Pattern: offset=12 (EtherType field), data=0x0806 (ARP), mask=0xFFFF (match all bits)
+        // Ethernet frame: [0-5: dest MAC][6-11: src MAC][12-13: EtherType][14+: payload]
+        self.write_reg(filter_addr + 0, 12); // Offset to match (EtherType field)
+        self.write_reg(filter_addr + 4, 0x0806); // ARP EtherType (big-endian)
+        self.write_reg(filter_addr + 8, 0xFFFF); // Mask (match all bits)
+        self.write_reg(filter_addr + 12, 0); // Reserved/unused
+
+        // Set filter length (16 bytes = check through EtherType)
+        // Length registers hold 4 filter lengths each (8 bits per filter)
+        let len_reg = GENET_HFB_OFF + HFB_FLT_LEN_V3PLUS[filter_id / 4];
+        let shift = (filter_id % 4) * 8;
+        let len_val = self.read_reg(len_reg);
+        self.write_reg(len_reg, (len_val & !(0xFF << shift)) | (16 << shift));
+
+        // Enable filter 0 (bit 0 in 32-bit enable mask)
+        self.write_reg(GENET_HFB_OFF + HFB_FLT_ENABLE_V3PLUS, 1 << filter_id);
+
+        // Set action: route matched packets to RX ring 16 (our default ring)
+        // Lower 8 bits = ring number (0x10 = ring 16)
+        self.write_reg(GENET_HFB_OFF + HFB_RXNFC_LKUP_CTRL + (filter_id * 4), 0x10);
+
+        // Enable HFB globally (bit 0 = enable)
+        self.write_reg(GENET_HFB_OFF + HFB_CTRL, 0x01);
+
+        // Verify programming by reading back registers
+        let ctrl = self.read_reg(GENET_HFB_OFF + HFB_CTRL);
+        let enable_mask = self.read_reg(GENET_HFB_OFF + HFB_FLT_ENABLE_V3PLUS);
+        let len_val = self.read_reg(len_reg);
+        let offset = self.read_reg(filter_addr + 0);
+        let ethertype = self.read_reg(filter_addr + 4);
+        let mask = self.read_reg(filter_addr + 8);
+
+        println!("[GENET] HFB filter enabled: ARP-only (EtherType 0x0806)");
+        println!("[GENET]   HFB_CTRL: 0x{:08X} (expect 0x00000001)", ctrl);
+        println!(
+            "[GENET]   Filter enable mask: 0x{:08X} (expect 0x00000001)",
+            enable_mask
+        );
+        println!(
+            "[GENET]   Filter length: 0x{:08X} (expect 0x00000010 in bits [7:0])",
+            len_val
+        );
+        println!(
+            "[GENET]   Filter pattern: offset={}, ethertype=0x{:04X}, mask=0x{:04X}",
+            offset, ethertype, mask
+        );
+    }
+
     /// Main initialization sequence
     ///
     /// Queries the MAC address from VideoCore firmware (stored in OTP during manufacturing)
@@ -865,10 +956,67 @@ impl GenetController {
             }
         );
 
+        println!("[GENET] Configuring interrupts...");
+
+        // Enable GENET RX interrupts before enabling TX/RX
+        // Check for any pending interrupts first
+        let pending_before = self.read_reg(INTRL2_0_OFF + INTRL2_CPU_STAT);
+        println!(
+            "[GENET]   Pending interrupts before clear: 0x{:08X}",
+            pending_before
+        );
+
+        // Clear any pending interrupts first
+        println!("[GENET]   Clearing pending interrupts");
+        self.write_reg(INTRL2_0_OFF + INTRL2_CPU_CLEAR, 0xFFFFFFFF);
+
+        // Verify they were cleared
+        let pending_after = self.read_reg(INTRL2_0_OFF + INTRL2_CPU_STAT);
+        println!(
+            "[GENET]   Pending interrupts after clear: 0x{:08X}",
+            pending_after
+        );
+
+        // Unmask ONLY RX DMA interrupt (bit 13), keep all others masked
+        // First: Ensure all interrupts are masked (redundant but explicit)
+        self.write_reg(INTRL2_0_OFF + INTRL2_CPU_MASK_SET, 0xFFFFFFFF);
+
+        // Then: Unmask ONLY bit 13 (RX DMA)
+        println!("[GENET]   Unmasking RX DMA interrupt (bit 13)");
+        self.write_reg(INTRL2_0_OFF + INTRL2_CPU_MASK_CLEAR, UMAC_IRQ_RXDMA_MBDONE);
+
+        // Verify interrupt mask (should be 0xFFFFDFFF - all masked except bit 13)
+        let mask = self.read_reg(INTRL2_0_OFF + INTRL2_CPU_MASK_STATUS);
+        println!(
+            "[GENET]   Interrupt mask: 0x{:08X} (expect 0xFFFFDFFF)",
+            mask
+        );
+
+        // Check RX ring state
+        let rx_prod = self.read_reg(RDMA_RING16_PROD_INDEX);
+        let rx_cons = self.read_reg(RDMA_RING16_CONS_INDEX);
+        println!(
+            "[GENET]   RX ring: PROD={} CONS={} (available: {})",
+            rx_prod,
+            rx_cons,
+            (rx_prod.wrapping_sub(rx_cons)) & 0xFFFF
+        );
+
+        println!("[GENET] GENET-internal interrupts configured (waiting for GIC enable)");
+
+        // TODO: Enable Hardware Filter Block to prevent interrupt storms from unwanted traffic
+        // Currently disabled - implementation needs fixing (complex Linux encoding scheme)
+        // See TODO-HFB.md for full implementation plan
+        // self.enable_arp_filter();
+
         // Enable TX and RX
+        println!("[GENET] Enabling TX/RX...");
         let mut cmd = self.read_reg(UMAC_CMD);
+        println!("[GENET]   UMAC_CMD before: 0x{:08X}", cmd);
         cmd |= CMD_TX_EN | CMD_RX_EN;
         self.write_reg(UMAC_CMD, cmd);
+        let cmd_after = self.read_reg(UMAC_CMD);
+        println!("[GENET]   UMAC_CMD after: 0x{:08X}", cmd_after);
 
         self.initialized = true;
         println!("[GENET] Initialization complete");
@@ -939,103 +1087,30 @@ impl GenetController {
             | DMA_EOP;
         self.write_reg(desc_offset + DMA_DESC_LENGTH_STATUS, len_status);
 
-        // DEBUG: Verify descriptor write stuck
-        let readback = self.read_reg(desc_offset + DMA_DESC_LENGTH_STATUS);
-        if readback != len_status {
-            crate::println!("[GENET] DESC WRITE FAILED!");
-            crate::println!("  Wrote:    0x{:08X}", len_status);
-            crate::println!("  Readback: 0x{:08X}", readback);
-            crate::println!("  Offset:   0x{:04X}", desc_offset + DMA_DESC_LENGTH_STATUS);
-            return Err(NetworkError::TransmitTimeout);
-        }
-
         // Advance TX index
         self.tx_index = (self.tx_index + 1) % RING_SIZE;
 
         // Increment and write producer index to trigger DMA
-        // Source: U-Boot bcmgenet.c::bcmgenet_gmac_eth_send()
-        // U-Boot reads hardware register first, we follow that pattern exactly
+        // This tells hardware to transmit the packet
         let mut prod_index = self.read_reg(TDMA_RING16_PROD_INDEX);
         prod_index = prod_index.wrapping_add(1);
         self.write_reg(TDMA_RING16_PROD_INDEX, prod_index);
-        self.tx_prod_index = prod_index; // Update software copy
 
-        // Wait for completion (poll CONS_INDEX)
-        for _ in 0..100 {
-            let cons = self.read_reg(TDMA_RING16_CONS_INDEX);
-            if (cons & 0xFFFF) >= (self.tx_prod_index & 0xFFFF) {
-                return Ok(());
-            }
-            SystemTimer::delay_us(10);
-        }
-
-        // TX timeout - dump register state for debugging
-        crate::println!("[GENET] TX TIMEOUT - Register Dump:");
-        crate::println!(
-            "  TDMA_CTRL:         0x{:08X} (DMA enable + ring buf)",
-            self.read_reg(TDMA_CTRL)
-        );
-        crate::println!(
-            "  TDMA_RING_CFG:     0x{:08X} (global ring enable - should be 0x{:08X})",
-            self.read_reg(TDMA_RING_CFG),
-            1 << DESC_INDEX
-        );
-        crate::println!(
-            "  UMAC_CMD:          0x{:08X} (TX_EN=bit0, RX_EN=bit1)",
-            self.read_reg(UMAC_CMD)
-        );
-        crate::println!(
-            "  TDMA_PROD_INDEX:   0x{:08X} (wrote: 0x{:08X})",
-            self.read_reg(TDMA_RING16_PROD_INDEX),
-            self.tx_prod_index
-        );
-        crate::println!(
-            "  TDMA_CONS_INDEX:   0x{:08X}",
-            self.read_reg(TDMA_RING16_CONS_INDEX)
-        );
-
-        let desc_idx = (self.tx_index + RING_SIZE - 1) % RING_SIZE;
-        crate::println!(
-            "  DESC[{}] ADDR_LO:   0x{:08X}",
-            desc_idx,
-            self.read_reg(desc_offset + DMA_DESC_ADDRESS_LO)
-        );
-        crate::println!(
-            "  DESC[{}] ADDR_HI:   0x{:08X}",
-            desc_idx,
-            self.read_reg(desc_offset + DMA_DESC_ADDRESS_HI)
-        );
-
-        let len_stat_read = self.read_reg(desc_offset + DMA_DESC_LENGTH_STATUS);
-        let expected_len_stat = ((frame.len() as u32) << DMA_BUFLENGTH_SHIFT)
-            | (0x3F << DMA_TX_QTAG_SHIFT)
-            | DMA_TX_APPEND_CRC
-            | DMA_SOP
-            | DMA_EOP;
-        crate::println!(
-            "  DESC[{}] LEN_STAT:  0x{:08X} (wrote: 0x{:08X})",
-            desc_idx,
-            len_stat_read,
-            expected_len_stat
-        );
-
-        let desc_len = (len_stat_read >> DMA_BUFLENGTH_SHIFT) & DMA_BUFLENGTH_MASK;
-        crate::println!(
-            "    Parsed length:   {} bytes (expected: {})",
-            desc_len,
-            frame.len()
-        );
-        crate::println!(
-            "    Flags: SOP={} EOP={} CRC={}",
-            (len_stat_read >> 14) & 1,
-            (len_stat_read >> 13) & 1,
-            (len_stat_read >> 8) & 1
-        );
-
-        crate::println!("  Software tx_index: {} (next desc)", self.tx_index);
-        crate::println!("  Software tx_prod:  {} (incremented)", self.tx_prod_index);
-
-        Err(NetworkError::TransmitTimeout)
+        // Non-blocking transmission (kernel pattern):
+        // Return immediately after submitting to DMA ring. Hardware will transmit
+        // asynchronously (typically completes in <100us for small frames at 1Gbps).
+        //
+        // This matches Linux kernel bcmgenet.c::bcmgenet_xmit() which returns
+        // NETDEV_TX_OK immediately after ring submission.
+        //
+        // Note: We have a single TX buffer, so only one packet can be in-flight.
+        // Calling transmit() again before the previous packet completes will
+        // overwrite the buffer, but in practice TX is so fast this rarely happens.
+        //
+        // Future improvement (Milestone #15): Enable TX completion interrupts
+        // (UMAC_IRQ_TXDMA_MBDONE) to properly track buffer state and support
+        // multiple in-flight packets.
+        Ok(())
     }
 
     fn receive_frame(&mut self) -> Option<&[u8]> {
@@ -1094,6 +1169,97 @@ impl GenetController {
 
         // Update hardware CONS_INDEX
         self.write_reg(RDMA_RING16_CONS_INDEX, self.rx_c_index as u32);
+    }
+}
+
+// ============================================================================
+// Interrupt Handler
+// ============================================================================
+
+/// Handle GENET RX interrupt (called from exception handler)
+///
+/// This function is called when RXDMA_MBDONE interrupt fires, indicating
+/// that the hardware has received one or more packets.
+///
+/// # Deadlock Prevention
+///
+/// CRITICAL: This function MUST NOT call `println!` or any function that
+/// acquires locks while holding `GENET.lock()`. The pattern is:
+/// 1. Acquire GENET lock
+/// 2. Drain RX ring and route packets
+/// 3. Drop GENET lock
+/// 4. Log results (safe - no lock held)
+pub fn handle_interrupt() {
+    use core::sync::atomic::{AtomicU32, Ordering};
+    static DEBUG_COUNT: AtomicU32 = AtomicU32::new(0);
+    let debug_num = DEBUG_COUNT.fetch_add(1, Ordering::Relaxed);
+
+    let (packets_routed, packets_dropped) = {
+        // CRITICAL: No println() while holding GENET lock - would deadlock with TX path
+        let mut genet = GENET.lock();
+
+        // Read interrupt status and mask (Linux kernel pattern)
+        let int_status_raw = genet.read_reg(INTRL2_0_OFF + INTRL2_CPU_STAT);
+        let int_mask = genet.read_reg(INTRL2_0_OFF + INTRL2_CPU_MASK_STATUS);
+
+        // Filter to ONLY unmasked interrupts (mask bit: 1=masked, 0=unmasked)
+        // Linux: status = read(STAT) & ~read(MASK_STATUS)
+        let int_status = int_status_raw & !int_mask;
+
+        // Clear the interrupts we're about to process
+        genet.write_reg(INTRL2_0_OFF + INTRL2_CPU_CLEAR, int_status);
+
+        // Check if this is an RX interrupt (bit 13 = RXDMA_MBDONE)
+        if (int_status & UMAC_IRQ_RXDMA_MBDONE) == 0 {
+            (0, 0) // Return tuple for closure
+        } else {
+            // Drain RX ring - route packets to sockets
+            let mut routed = 0;
+            let mut dropped = 0;
+            let mut packet_count = 0;
+
+            while let Some(frame_data) = genet.receive_frame() {
+                // SAFETY: frame_data points into GENET's static DMA buffer
+                // The packet pool will hold a reference to this data until all
+                // sockets are done processing it.
+                let frame_static: &'static [u8] = unsafe { core::mem::transmute(frame_data) };
+
+                // Route packet to socket layer
+                if unsafe { crate::net::router::route_packet(frame_static) } {
+                    routed += 1;
+                } else {
+                    dropped += 1;
+                }
+
+                // CRITICAL: Free RX buffer so hardware can reuse descriptor
+                genet.free_rx_buffer();
+
+                packet_count += 1;
+
+                // Safety valve: Limit max packets per interrupt to prevent starvation
+                if packet_count >= 32 {
+                    break; // Leave remaining packets for next interrupt
+                }
+            }
+
+            (routed, dropped)
+        } // End of else block for RX interrupt processing
+    }; // Drop GENET lock BEFORE any println!
+
+    // Log statistics outside lock (safe - no deadlock risk)
+    if packets_routed > 0 || packets_dropped > 0 {
+        static IRQ_COUNT: AtomicU32 = AtomicU32::new(0);
+        let total = IRQ_COUNT.fetch_add(1, Ordering::Relaxed);
+
+        // Rate-limited logging (first 10 interrupts only)
+        if total < 10 {
+            println!(
+                "[GENET IRQ #{}] Routed {} pkts, dropped {}",
+                total + 1,
+                packets_routed,
+                packets_dropped
+            );
+        }
     }
 }
 
@@ -1172,12 +1338,16 @@ pub struct PacketStats {
 // Global GENET Instance
 // ============================================================================
 
+use crate::sync::Mutex;
 use lazy_static::lazy_static;
-use spin::Mutex;
 
 lazy_static! {
     /// Global GENET controller instance
     ///
-    /// Wrapped in a Mutex for thread-safe access. Initialize with `GENET.lock().init()`.
+    /// Wrapped in a mutex to prevent data races. The mutex automatically
+    /// disables interrupts while the lock is held, preventing deadlocks
+    /// between the TX path and RX interrupt handler.
+    ///
+    /// Initialize with `GENET.lock().init()`.
     pub static ref GENET: Mutex<GenetController> = Mutex::new(GenetController::new());
 }

@@ -7,9 +7,9 @@
 //!
 //! Reference: [ARM GIC-400 Architecture Specification](https://developer.arm.com/documentation/ihi0069/latest/)
 
+use crate::sync::Mutex;
 use core::ptr::{read_volatile, write_volatile};
 use lazy_static::lazy_static;
-use spin::Mutex;
 
 /// GIC Distributor base address (BCM2711).
 ///

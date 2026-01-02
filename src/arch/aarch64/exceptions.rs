@@ -358,18 +358,7 @@ fn handle_irq() {
             crate::drivers::uart::handle_interrupt();
         }
         crate::drivers::gic::irq::GENET_0 | crate::drivers::gic::irq::GENET_1 => {
-            // CRITICAL: GENET interrupts should NEVER fire - they're masked!
-            // Always log these regardless of count limits to catch interrupt storms
-            static GENET_IRQ_COUNT: core::sync::atomic::AtomicU32 =
-                core::sync::atomic::AtomicU32::new(0);
-            let count = GENET_IRQ_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-            crate::println!(
-                "[IRQ] !!! GENET INTERRUPT {} FIRED !!! (count: {})",
-                int_id,
-                count + 1
-            );
-            crate::println!("[IRQ] This should not happen - GENET interrupts are masked!");
-            // Just acknowledge and return (EOI happens below)
+            crate::drivers::genet::handle_interrupt();
         }
         _ => {
             // Unknown interrupt - log it for debugging (limit to first few to avoid spam)

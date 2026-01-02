@@ -24,6 +24,7 @@ pub mod mm;
 pub mod net;
 pub mod qemu;
 pub mod shell;
+pub mod sync;
 
 // Re-exports for backward compatibility and convenience
 pub use arch::aarch64::exceptions;
@@ -111,21 +112,32 @@ fn init_ethernet(hw: &Option<dt::HardwareInfo>) {
                 .and_then(|dev| dev.base_address().map(dt::bus_to_physical))
         });
 
-        let mut genet = drivers::genet::GENET.lock();
-        *genet = drivers::genet::GenetController::with_base_addr(addr);
+        // Step 1: Initialize GENET hardware (does NOT enable GIC interrupt yet)
+        let init_ok = {
+            let mut genet = drivers::genet::GENET.lock();
+            *genet = drivers::genet::GenetController::with_base_addr(addr);
 
-        if genet.is_present() {
-            // MAC address is read from hardware (firmware programs it from OTP via mailbox)
-            match genet.initialize(mbox_addr) {
-                Ok(()) => {
-                    println!("[  OK  ] Ethernet controller initialized (GENET v5)");
+            if genet.is_present() {
+                // MAC address is read from hardware (firmware programs it from OTP via mailbox)
+                match genet.initialize(mbox_addr) {
+                    Ok(()) => true,
+                    Err(e) => {
+                        println!("[ WARN ] Ethernet initialization failed: {:?}", e);
+                        false
+                    }
                 }
-                Err(e) => {
-                    println!("[ WARN ] Ethernet initialization failed: {:?}", e);
-                }
+            } else {
+                println!("[ WARN ] GENET hardware not detected");
+                false
             }
-        } else {
-            println!("[ WARN ] GENET hardware not detected");
+        }; // GENET lock dropped here
+
+        // Step 2: GENET hardware is initialized, but GIC interrupt is NOT enabled yet
+        // Interrupts will be enabled when the first socket binds (see socket::bind)
+        // This prevents interrupt storm from broadcast traffic before any consumer exists
+        if init_ok {
+            println!("[  OK  ] Ethernet controller initialized (GENET v5)");
+            println!("[  OK  ] Interrupts will be enabled when first socket binds");
         }
     }
 }

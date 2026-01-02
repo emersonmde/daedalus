@@ -3,10 +3,10 @@
 //! Provides a simple polling-based UART driver for the Raspberry Pi's PL011 UART0.
 //! Supports both transmit and receive operations with proper FIFO handling.
 
+use crate::sync::Mutex;
 use core::fmt;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use lazy_static::lazy_static;
-use spin::Mutex;
 use volatile::Volatile;
 
 /// PL011 UART base address (BCM2711 Low Peripheral mode).

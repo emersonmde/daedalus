@@ -2,12 +2,17 @@
 //!
 //! Comprehensive diagnostics for testing Ethernet TX/RX functionality.
 //! Sends an ARP request and monitors all hardware state to diagnose issues.
+//!
+//! **Milestone #14 Update**: Now uses interrupt-driven socket API instead of direct
+//! hardware polling. Packets are delivered via GENET RX interrupts to socket queues.
 
 use crate::drivers::genet::GENET;
 use crate::drivers::netdev::NetworkDevice;
 use crate::drivers::timer::SystemTimer;
 use crate::net::arp::{ArpOperation, ArpPacket};
 use crate::net::ethernet::{ETHERTYPE_ARP, EthernetFrame, MacAddress};
+use crate::net::{AddressFamily, Protocol, SocketAddr, SocketError, SocketOptions, SocketType};
+use crate::net::{bind, close, recvfrom, sendto, socket};
 use crate::{print, println};
 use alloc::format;
 
@@ -15,18 +20,36 @@ use alloc::format;
 ///
 /// This function:
 /// 1. Checks hardware state before transmission
-/// 2. Sends an ARP request to 10.42.10.1
+/// 2. Sends an ARP request to 10.42.10.1 via socket API
 /// 3. Monitors DMA rings and MIB counters
-/// 4. Receives and displays all packets (with details for first few)
+/// 4. Receives packets via interrupt-driven socket (with details for first few)
 /// 5. Looks for ARP reply
 ///
 /// Returns true if ARP reply received, false otherwise.
 pub fn run_arp_probe_diagnostic() -> bool {
-    let mut genet = GENET.lock();
+    // Check if GENET hardware is present
+    {
+        let genet = GENET.lock();
+        if !genet.is_present() {
+            println!("[ERROR] GENET hardware not detected!");
+            println!("[INFO] This diagnostic requires real hardware (not available in QEMU)");
+            return false;
+        }
+    }
 
-    if !genet.is_present() {
-        println!("[ERROR] GENET hardware not detected!");
-        println!("[INFO] This diagnostic requires real hardware (not available in QEMU)");
+    // Create and bind ARP socket
+    let sock = match socket(AddressFamily::Packet, SocketType::Raw, Protocol::Arp) {
+        Ok(s) => s,
+        Err(e) => {
+            println!("[ERROR] Failed to create socket: {}", e);
+            return false;
+        }
+    };
+
+    let bind_addr = SocketAddr::packet(ETHERTYPE_ARP);
+    if let Err(e) = bind(sock, bind_addr) {
+        println!("[ERROR] Failed to bind socket: {}", e);
+        close(sock).ok();
         return false;
     }
 
@@ -42,14 +65,17 @@ pub fn run_arp_probe_diagnostic() -> bool {
 
     println!("┌─ Hardware State (Pre-TX) ────────────────────────────────────");
 
-    let our_mac = genet.mac_address();
-    println!("│ MAC Address:    {}", our_mac);
+    let (our_mac, tx_prod_pre, tx_cons_pre, stats_before) = {
+        let genet = GENET.lock();
+        let mac = genet.mac_address();
+        let (prod, cons) = genet.read_dma_indices();
+        let stats = genet.read_stats();
+        (mac, prod, cons, stats)
+    };
 
-    let (tx_prod_pre, tx_cons_pre) = genet.read_dma_indices();
+    println!("│ MAC Address:    {}", our_mac);
     println!("│ TX PROD_INDEX:  {}", tx_prod_pre);
     println!("│ TX CONS_INDEX:  {}", tx_cons_pre);
-
-    let stats_before = genet.read_stats();
     println!("│");
     println!("│ MIB Counters (Before TX):");
     println!("│   TX Packets:   {}", stats_before.tx_packets);
@@ -106,12 +132,19 @@ pub fn run_arp_probe_diagnostic() -> bool {
         frame_size, send_size
     );
 
-    // Send the frame
-    match genet.transmit(&frame_buffer[..send_size]) {
-        Ok(()) => println!("│ TX Result:      ✓ SUCCESS"),
+    // Send the frame via socket API
+    // For AF_PACKET, we send the complete Ethernet frame (caller builds it)
+    let dest_addr = SocketAddr::Packet {
+        interface: Some(MacAddress::broadcast()),
+        protocol: ETHERTYPE_ARP,
+    };
+
+    match sendto(sock, &frame_buffer[..send_size], &dest_addr) {
+        Ok(_) => println!("│ TX Result:      ✓ SUCCESS"),
         Err(e) => {
-            println!("│ TX Result:      ✗ FAILED: {:?}", e);
+            println!("│ TX Result:      ✗ FAILED: {}", e);
             println!("└──────────────────────────────────────────────────────────────");
+            close(sock).ok();
             return false;
         }
     }
@@ -119,8 +152,14 @@ pub fn run_arp_probe_diagnostic() -> bool {
     // Wait for hardware to process
     SystemTimer::delay_ms(10);
 
-    // Check DMA indices after TX
-    let (tx_prod_post, tx_cons_post) = genet.read_dma_indices();
+    // Check DMA indices and stats after TX
+    let (tx_prod_post, tx_cons_post, stats_after_tx) = {
+        let genet = GENET.lock();
+        let (prod, cons) = genet.read_dma_indices();
+        let stats = genet.read_stats();
+        (prod, cons, stats)
+    };
+
     println!("│ TX PROD (after): {}", tx_prod_post);
     println!("│ TX CONS (after): {}", tx_cons_post);
 
@@ -130,8 +169,6 @@ pub fn run_arp_probe_diagnostic() -> bool {
         println!("│ DMA Status:      ✗ CONS unchanged (hardware may not be working)");
     }
 
-    // Check MIB counters after TX
-    let stats_after_tx = genet.read_stats();
     println!("│");
     println!("│ MIB Counters (After TX):");
     println!(
@@ -164,23 +201,32 @@ pub fn run_arp_probe_diagnostic() -> bool {
     // STEP 3: Receive Packets and Look for ARP Reply
     // =======================================================================
 
-    println!("┌─ Reception (polling for 2 seconds) ──────────────────────────");
+    println!("┌─ Reception (polling socket for 2 seconds) ───────────────────");
     println!("│");
 
     let mut arp_reply_received = false;
     let mut total_packets_received = 0;
     let mut watchdog_triggered = false;
 
+    // Use non-blocking socket options for polling
+    let recv_opts = SocketOptions::non_blocking();
+
     for iteration in 0..20 {
-        // Drain all packets in ring
+        // Drain all packets from socket queue
         let mut iteration_packet_count = 0;
 
         loop {
-            // Check if packet available
-            let Some(rx_frame_data) = genet.receive() else {
-                break; // No more packets in ring
+            // Try to receive packet from socket (non-blocking)
+            let rx_packet = match recvfrom(sock, &recv_opts) {
+                Ok(pkt) => pkt,
+                Err(SocketError::WouldBlock) => break, // No more packets in queue
+                Err(e) => {
+                    println!("│ [ERROR] Socket recv failed: {}", e);
+                    break;
+                }
             };
 
+            let rx_frame_data = &rx_packet.data;
             total_packets_received += 1;
             iteration_packet_count += 1;
 
@@ -276,9 +322,7 @@ pub fn run_arp_probe_diagnostic() -> bool {
                     }
                 }
             }
-
-            // Free the RX buffer
-            genet.free_rx_buffer();
+            // Note: Socket API automatically frees packet buffer when rx_packet is dropped
         }
 
         // Show iteration summary if we got packets
@@ -304,11 +348,17 @@ pub fn run_arp_probe_diagnostic() -> bool {
     println!("└──────────────────────────────────────────────────────────────");
     println!();
 
+    // Close socket
+    close(sock).ok();
+
     // =======================================================================
     // STEP 4: Final Statistics
     // =======================================================================
 
-    let stats_final = genet.read_stats();
+    let stats_final = {
+        let genet = GENET.lock();
+        genet.read_stats()
+    };
 
     println!("┌─ Final MIB Counters ─────────────────────────────────────────");
     println!(
