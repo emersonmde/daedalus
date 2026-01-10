@@ -13,13 +13,13 @@ DaedalusOS development phases and milestones.
 ## Current Status
 
 **Phase 4 In Progress** 🔄 - Networking Stack
-**Milestone #13 Complete** ✅ - Frame Transmission & Reception
+**Milestone #14 Complete** ✅ - Interrupt-Driven Networking
 - Working REPL with command parsing and shell history
 - Exception vector table with register dumps
 - 8 MB heap with bump allocator
 - Full `alloc` crate support (Box, Vec, String, collections)
 - System timer driver with microsecond precision delays
-- GIC-400 interrupt controller with interrupt-driven UART
+- GIC-400 interrupt controller with interrupt-driven UART RX
 - MMU with 39-bit virtual address space (identity mapped)
 - Caching enabled for performance
 - GPIO driver with BCM2711 pull-up/down support
@@ -27,10 +27,14 @@ DaedalusOS development phases and milestones.
 - GENET Ethernet controller with full TX/RX capability
 - VideoCore mailbox driver for querying firmware properties
 - MAC address retrieved from OTP (One-Time Programmable memory)
-- Ethernet and ARP protocol structures with 30 unit tests
-- Shell commands: `eth-diag` (diagnostics), `arp-probe` (TX/RX test)
+- **sk_buff packet buffers** with Arc reference counting (Linux-inspired)
+- **Protocol handler registry** for extensible packet dispatch
+- **ARP protocol handler** with socket delivery
+- **Socket API** (socket, bind, sendto, recvfrom, close) with AF_PACKET support
+- **Interrupt-driven packet routing** from GENET RX to sockets
+- Shell commands: `eth-stats`, `netstats`, `arp-probe` (full end-to-end test)
 
-**Next**: Milestone #14 - Interrupt-driven networking
+**Next**: Milestone #15 - ARP Responder
 
 ## Phase 1: Interactive Shell ✅ COMPLETE
 
@@ -121,11 +125,18 @@ DaedalusOS development phases and milestones.
 - ✅ Frame validation and error handling
 - ✅ Shell command: `arp-probe` (comprehensive TX/RX diagnostics)
 
-**Milestone #14**: Interrupt-Driven Networking
-- Register GENET interrupts with GIC
-- RX interrupt handler
-- TX completion handling
-- Frame queuing for processing
+**Milestone #14**: Interrupt-Driven Networking ✅ COMPLETE
+- ✅ Socket buffer (sk_buff) implementation with Arc reference counting
+- ✅ Protocol handler registry for extensible packet dispatch
+- ✅ ARP protocol handler with socket delivery
+- ✅ Socket API: socket(), bind(), sendto(), recvfrom(), close()
+- ✅ AF_PACKET sockets with EtherType-based routing
+- ✅ Interrupt-driven RX handler with packet routing to sockets
+- ✅ Lock-free socket RX queues (32-entry ring buffers)
+- ✅ GIC interrupt enable/disable on socket bind/close
+- ✅ Comprehensive statistics via `netstats` command
+- ✅ Full end-to-end test with `arp-probe` diagnostic
+- Note: TX completion interrupts deferred to future optimization
 
 **Milestone #15**: ARP Responder
 - ARP cache implementation with expiration

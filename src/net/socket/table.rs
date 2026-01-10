@@ -3,9 +3,8 @@
 //! This module manages socket allocation, binding, and lookup. It provides
 //! fast O(1) lookup by (protocol, IP, port) for packet routing.
 
-use super::queue::RxPacketQueue;
+use super::queue::SkBuffQueue;
 use super::types::{AddressFamily, Protocol, Socket, SocketAddr, SocketError, SocketType};
-use crate::net::packet_pool::PACKET_POOL;
 use crate::sync::Mutex;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
@@ -98,8 +97,11 @@ pub struct SocketImpl {
     /// Remote address (future, for connected sockets)
     pub remote_addr: Option<SocketAddr>,
 
-    /// Receive queue
-    pub rx_queue: RxPacketQueue,
+    /// Receive queue (ingress - packets from network)
+    pub rx_queue: SkBuffQueue,
+
+    /// Transmit queue (egress - packets to network)
+    pub tx_queue: SkBuffQueue,
 
     /// Maximum queue size
     pub max_queue_size: usize,
@@ -107,7 +109,7 @@ pub struct SocketImpl {
 
 impl SocketImpl {
     /// Default RX queue size
-    const DEFAULT_QUEUE_SIZE: usize = RxPacketQueue::CAPACITY;
+    const DEFAULT_QUEUE_SIZE: usize = SkBuffQueue::CAPACITY;
 
     /// Create a new socket
     pub fn new(
@@ -124,7 +126,8 @@ impl SocketImpl {
             state: SocketState::Created,
             bind_addr: None,
             remote_addr: None,
-            rx_queue: RxPacketQueue::new(),
+            rx_queue: SkBuffQueue::new(),
+            tx_queue: SkBuffQueue::new(),
             max_queue_size: Self::DEFAULT_QUEUE_SIZE,
         }
     }
@@ -264,7 +267,7 @@ impl SocketTable {
     /// Ok(()) on success, error if address in use or socket invalid.
     pub fn bind(&mut self, sock: Socket, addr: SocketAddr) -> Result<(), SocketError> {
         // First, validate socket and extract needed info
-        let (_socket_family, socket_protocol) = {
+        let socket_protocol = {
             let socket = self
                 .sockets
                 .get(sock.0)
@@ -283,7 +286,7 @@ impl SocketTable {
                 _ => return Err(SocketError::InvalidAddressFamily),
             }
 
-            (socket.family, socket.protocol)
+            socket.protocol
         }; // Drop socket borrow here
 
         // Allocate ephemeral port if needed (no socket borrow here)
@@ -367,10 +370,14 @@ impl SocketTable {
             false
         };
 
-        // Drain RX queue and free all packet buffers
-        // This prevents packet pool leaks when socket is closed with pending packets
-        while let Some(pkt_ref) = socket.rx_queue.dequeue() {
-            PACKET_POOL.free(pkt_ref.buffer_id);
+        // Drain both RX and TX queues
+        // This prevents sk_buff leaks when socket is closed with pending packets
+        // Arc refcounting ensures sk_buffs are freed when dropped
+        for _skb in socket.rx_queue.drain() {
+            // Drain silently
+        }
+        for _skb in socket.tx_queue.drain() {
+            // Drain silently
         }
 
         // Mark socket as closed and free slot
@@ -458,6 +465,26 @@ impl SocketTable {
                 return Err(SocketError::AddressInUse);
             }
         }
+    }
+
+    /// Get socket table statistics
+    ///
+    /// Returns (total_allocated, bound_count, per_socket_queue_depths)
+    pub fn stats(&self) -> (usize, usize, alloc::vec::Vec<(usize, usize)>) {
+        let total = self.sockets.iter().filter(|s| s.is_some()).count();
+        let bound = self.bound_count;
+
+        // Collect per-socket queue depths for bound sockets
+        let mut queue_depths = alloc::vec::Vec::new();
+        for (idx, sock_opt) in self.sockets.iter().enumerate() {
+            if let Some(sock) = sock_opt {
+                if sock.state == SocketState::Bound {
+                    queue_depths.push((idx, sock.rx_queue.len()));
+                }
+            }
+        }
+
+        (total, bound, queue_depths)
     }
 }
 

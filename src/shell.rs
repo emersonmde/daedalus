@@ -129,6 +129,7 @@ fn execute_command(cmd: Command) {
             println!();
             println!("Network:");
             println!("  eth-stats      - Show Ethernet packet statistics");
+            println!("  netstats       - Show network stack debug statistics");
             println!("  arp-probe      - Send ARP probe to test TX/RX (10.42.10.1)");
             println!();
             println!("Utilities:");
@@ -602,6 +603,11 @@ fn execute_command(cmd: Command) {
             println!("RX Errors:");
             println!("  FCS errors:       {}", stats.rx_fcs_errors);
             println!("  Alignment errors: {}", stats.rx_align_errors);
+        }
+
+        "netstats" => {
+            use crate::net::router;
+            router::print_debug_stats();
         }
 
         "arp-probe" => {

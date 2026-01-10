@@ -12,9 +12,20 @@
 //!
 //! Future milestones will add IP-layer routing (protocol + port matching).
 
-use crate::net::ethernet::{ETHERTYPE_ARP, ETHERTYPE_IPV4, EthernetFrame};
-use crate::net::packet_pool::PACKET_POOL;
-use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+use crate::net::ethernet::{ETHERTYPE_ARP, EthernetFrame};
+use crate::net::protocol::PROTOCOL_REGISTRY;
+use crate::net::skbuff::SkBuff;
+use crate::net::socket::Protocol;
+use core::sync::atomic::{AtomicUsize, Ordering};
+
+/// Maximum debug log entries for unknown EtherTypes before silencing
+/// Set to 0 in release builds (no logging in interrupt context)
+#[cfg(debug_assertions)]
+const DEBUG_UNKNOWN_ETHERTYPE_LIMIT: u32 = 10;
+
+/// Maximum debug log entries for handler failures before silencing
+#[cfg(debug_assertions)]
+const DEBUG_HANDLER_FAILURE_LIMIT: u32 = 5;
 
 /// Statistics for packet routing
 pub struct RouterStats {
@@ -24,8 +35,8 @@ pub struct RouterStats {
     /// Packets dropped (parse error or no matching socket)
     pub packets_dropped: AtomicUsize,
 
-    /// Packets dropped due to pool exhaustion
-    pub pool_exhausted: AtomicUsize,
+    /// Packets dropped due to allocation failure
+    pub alloc_failed: AtomicUsize,
 }
 
 impl RouterStats {
@@ -33,7 +44,7 @@ impl RouterStats {
         Self {
             packets_routed: AtomicUsize::new(0),
             packets_dropped: AtomicUsize::new(0),
-            pool_exhausted: AtomicUsize::new(0),
+            alloc_failed: AtomicUsize::new(0),
         }
     }
 }
@@ -44,17 +55,15 @@ pub static ROUTER_STATS: RouterStats = RouterStats::new();
 /// Route a received packet to appropriate socket(s)
 ///
 /// Called from GENET interrupt handler for each received frame.
+/// Uses protocol registry to dispatch to registered handlers.
 ///
 /// # Arguments
 /// * `frame_data` - Raw Ethernet frame (including header)
 ///
 /// # Returns
 /// * `true` if packet was successfully routed to at least one socket
-/// * `false` if packet was dropped (parse error, no matching socket, or pool full)
-///
-/// # Safety
-/// Caller must ensure `frame_data` has static lifetime (points into GENET DMA buffer).
-pub unsafe fn route_packet(frame_data: &'static [u8]) -> bool {
+/// * `false` if packet was dropped (parse error, no matching socket, or allocation failed)
+pub fn route_packet(frame_data: &[u8]) -> bool {
     // Parse Ethernet header
     let eth_frame = match EthernetFrame::parse(frame_data) {
         Some(frame) => frame,
@@ -65,118 +74,82 @@ pub unsafe fn route_packet(frame_data: &'static [u8]) -> bool {
         }
     };
 
-    // Route based on EtherType
-    let routed = match eth_frame.ethertype {
-        ETHERTYPE_ARP => route_arp(frame_data, &eth_frame),
-        ETHERTYPE_IPV4 => route_ipv4(frame_data, &eth_frame),
+    // Map EtherType to Protocol enum
+    let protocol = match eth_frame.ethertype {
+        ETHERTYPE_ARP => Protocol::Arp,
+        // Future: Parse IP header to determine ICMP/UDP/TCP
+        // ETHERTYPE_IPV4 => parse_ip_protocol(frame_data),
         _ => {
-            // Unknown EtherType - check for raw sockets
-            route_raw(frame_data, &eth_frame)
+            // Unknown protocol - drop packet
+            ROUTER_STATS.packets_dropped.fetch_add(1, Ordering::Relaxed);
+
+            // Debug: Log first N dropped packets (only in debug builds)
+            #[cfg(debug_assertions)]
+            {
+                use core::sync::atomic::AtomicU32;
+                static DROP_COUNT: AtomicU32 = AtomicU32::new(0);
+                let count = DROP_COUNT.fetch_add(1, Ordering::Relaxed);
+                if count < DEBUG_UNKNOWN_ETHERTYPE_LIMIT {
+                    crate::println!(
+                        "[ROUTER] Drop #{}: EtherType 0x{:04X}, src={}, dst={}",
+                        count + 1,
+                        eth_frame.ethertype,
+                        eth_frame.src_mac,
+                        eth_frame.dest_mac
+                    );
+                }
+            }
+            return false;
         }
     };
 
-    // Debug: Log first 20 dropped packets to see what we're filtering
-    if !routed {
-        static DROP_COUNT: AtomicU32 = AtomicU32::new(0);
-        let count = DROP_COUNT.fetch_add(1, Ordering::Relaxed);
-        if count < 20 {
-            crate::println!(
-                "[ROUTER] Drop #{}: EtherType 0x{:04X}, src={}, dst={}",
-                count + 1,
-                eth_frame.ethertype,
-                eth_frame.src_mac,
-                eth_frame.dest_mac
-            );
+    // Allocate sk_buff (copy from DMA to heap)
+    let skb = match SkBuff::from_dma(frame_data) {
+        Ok(skb) => skb,
+        Err(_) => {
+            // Heap allocation failed
+            ROUTER_STATS.alloc_failed.fetch_add(1, Ordering::Relaxed);
+            ROUTER_STATS.packets_dropped.fetch_add(1, Ordering::Relaxed);
+            return false;
         }
-        ROUTER_STATS.packets_dropped.fetch_add(1, Ordering::Relaxed);
-    } else {
+    };
+
+    // Dispatch to protocol handler
+    let routed = {
+        let registry = PROTOCOL_REGISTRY.lock();
+        if let Some(handler) = registry.get(&protocol) {
+            // Call protocol-specific receive handler
+            let result = handler.receive(skb);
+            result.is_ok()
+        } else {
+            // No handler registered for this protocol
+            false
+        }
+    }; // Lock dropped before any println
+
+    // Update statistics and log issues
+    if routed {
         ROUTER_STATS.packets_routed.fetch_add(1, Ordering::Relaxed);
+    } else {
+        ROUTER_STATS.packets_dropped.fetch_add(1, Ordering::Relaxed);
+
+        // Debug: Log dropped packets (only in debug builds)
+        #[cfg(debug_assertions)]
+        {
+            use core::sync::atomic::AtomicU32;
+            static DROP_DEBUG_COUNT: AtomicU32 = AtomicU32::new(0);
+            let debug_count = DROP_DEBUG_COUNT.fetch_add(1, Ordering::Relaxed);
+            if debug_count < DEBUG_HANDLER_FAILURE_LIMIT {
+                crate::println!(
+                    "[ROUTER] Drop #{}: Protocol {:?} routing failed",
+                    debug_count + 1,
+                    protocol
+                );
+            }
+        }
     }
 
     routed
-}
-
-/// Route ARP packet to bound sockets
-///
-/// # Arguments
-/// * `frame_data` - Complete Ethernet frame
-/// * `eth_frame` - Parsed Ethernet header
-///
-/// # Returns
-/// `true` if delivered to at least one socket, `false` otherwise.
-fn route_arp(frame_data: &'static [u8], _eth_frame: &EthernetFrame) -> bool {
-    use crate::net::socket::{PacketRef, SOCKET_TABLE, SocketKey};
-
-    // Allocate packet from pool
-    // SAFETY: frame_data has static lifetime (from GENET DMA buffer)
-    let buffer_id = unsafe {
-        match PACKET_POOL.alloc(frame_data) {
-            Some(id) => id,
-            None => {
-                ROUTER_STATS.pool_exhausted.fetch_add(1, Ordering::Relaxed);
-                return false;
-            }
-        }
-    };
-
-    // Create packet reference
-    let pkt_ref = PacketRef {
-        buffer_id,
-        offset: 0,
-        length: frame_data.len(),
-        timestamp: crate::drivers::timer::SystemTimer::timestamp_us(),
-    };
-
-    // Find socket bound to ARP protocol
-    let key = SocketKey::packet(crate::net::socket::Protocol::Arp);
-
-    let delivered = {
-        let table = SOCKET_TABLE.lock();
-
-        if let Some(socket_id) = table.lookup(&key) {
-            // Use socket_id directly instead of trying to construct Socket
-            if let Some(socket) = table.sockets.get(socket_id).and_then(|s| s.as_ref()) {
-                // Enqueue packet to socket's RX queue
-                if socket.rx_queue.enqueue(pkt_ref).is_ok() {
-                    true
-                } else {
-                    // Socket queue full - packet dropped
-                    false
-                }
-            } else {
-                false
-            }
-        } else {
-            // No socket bound to ARP
-            false
-        }
-    };
-
-    // If not delivered, free the packet buffer
-    if !delivered {
-        PACKET_POOL.free(buffer_id);
-    }
-
-    delivered
-}
-
-/// Route IPv4 packet to bound sockets (future)
-///
-/// For Milestone #14, this is a stub. Milestone #15 will add IP header parsing
-/// and routing by protocol (ICMP, UDP, TCP) + port.
-fn route_ipv4(_frame_data: &'static [u8], _eth_frame: &EthernetFrame) -> bool {
-    // Future: Parse IP header, route by protocol + port
-    // For now, drop (no IPv4 support yet)
-    false
-}
-
-/// Route to raw sockets (future)
-///
-/// Raw sockets can bind to specific EtherTypes or receive all frames.
-fn route_raw(_frame_data: &'static [u8], _eth_frame: &EthernetFrame) -> bool {
-    // Future: Check for sockets bound to this EtherType
-    // For now, drop
-    false
 }
 
 /// Get router statistics
@@ -184,25 +157,80 @@ pub fn stats() -> (usize, usize, usize) {
     (
         ROUTER_STATS.packets_routed.load(Ordering::Relaxed),
         ROUTER_STATS.packets_dropped.load(Ordering::Relaxed),
-        ROUTER_STATS.pool_exhausted.load(Ordering::Relaxed),
+        ROUTER_STATS.alloc_failed.load(Ordering::Relaxed),
     )
+}
+
+/// Print comprehensive router and network stack statistics
+///
+/// Call this after arp-probe runs to verify the new architecture is working.
+pub fn print_debug_stats() {
+    use crate::drivers::genet::genet_interrupt_stats;
+    use crate::net::protocol::registered_protocol_count;
+    use crate::net::protocols::arp_rx_count;
+    use crate::net::socket::socket_stats;
+
+    let (routed, dropped, alloc_failed) = stats();
+    let protocol_count = registered_protocol_count();
+    let arp_packets = arp_rx_count();
+    let (sock_total, sock_bound, sock_queues) = socket_stats();
+    let (irq_total, irq_spurious, rx_errors) = genet_interrupt_stats();
+
+    crate::println!("\n=== Network Stack Statistics ===");
+
+    crate::println!("Router:");
+    crate::println!("  Packets routed:       {}", routed);
+    crate::println!("  Packets dropped:      {}", dropped);
+    crate::println!("  sk_buff alloc failed: {}", alloc_failed);
+
+    crate::println!();
+    crate::println!("Protocols:");
+    crate::println!("  Registered:           {} (ARP)", protocol_count);
+    crate::println!("  ARP packets RX:       {}", arp_packets);
+
+    crate::println!();
+    crate::println!("Sockets:");
+    crate::println!("  Total allocated:      {}", sock_total);
+    crate::println!("  Bound sockets:        {}", sock_bound);
+    if !sock_queues.is_empty() {
+        for (sock_id, depth) in sock_queues {
+            crate::println!("  Socket {} RX queue:    {} packets", sock_id, depth);
+        }
+    }
+
+    crate::println!();
+    crate::println!("GENET Interrupts:");
+    crate::println!("  Total IRQs:           {}", irq_total);
+    crate::println!("  RX errors:            {}", rx_errors);
+    crate::println!("  Spurious (current):   {}", irq_spurious);
+
+    // Warnings
+    if alloc_failed > 0 {
+        crate::println!();
+        crate::println!("  [WARNING] Heap allocation failures detected!");
+        crate::println!("            This indicates heap exhaustion - check memory usage");
+    }
+
+    if dropped > 0 && routed == 0 {
+        crate::println!();
+        crate::println!("  [WARNING] No packets routed but some dropped!");
+        crate::println!("            Check: Is protocol registry initialized?");
+        crate::println!("                   Is socket bound?");
+    }
+
+    crate::println!("=====================================\n");
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::net::ethernet::MacAddress;
-    extern crate alloc;
-    use alloc::vec;
 
     #[test_case]
     fn test_route_malformed_frame() {
         // Too short to be valid Ethernet frame
         let buffer = [0u8; 10];
 
-        // SAFETY: Transmuting to static lifetime for test purposes
-        let frame_data: &'static [u8] = unsafe { core::mem::transmute(&buffer[..]) };
-        let routed = unsafe { route_packet(frame_data) };
+        let routed = route_packet(&buffer);
 
         // Should fail (malformed)
         assert!(!routed);

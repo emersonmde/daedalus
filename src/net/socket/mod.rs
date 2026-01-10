@@ -32,7 +32,7 @@ pub mod queue;
 pub mod table;
 pub mod types;
 
-pub use queue::{PacketRef, RxPacketQueue};
+pub use queue::SkBuffQueue;
 pub use table::{SOCKET_TABLE, SocketImpl, SocketKey, SocketState, SocketTable};
 pub use types::{
     AddressFamily, Protocol, RecvFrom, Socket, SocketAddr, SocketError, SocketOptions, SocketType,
@@ -90,30 +90,44 @@ pub fn socket(
 /// bind(sock, addr)?;
 /// ```
 pub fn bind(sock: Socket, addr: SocketAddr) -> Result<(), SocketError> {
-    // Step 1: Bind socket and check if this is the first binding
-    // (drop lock BEFORE enabling interrupt to prevent deadlock)
+    // Step 1: Bind socket and drain any leftover packets
+    // (This fixes race condition where packets arrive between close and interrupt disable)
     let enable_interrupt = {
         let mut table = SOCKET_TABLE.lock();
+
         table.bind(sock, addr)?;
+
+        // CRITICAL: Drain any stale packets from previous runs BEFORE enabling interrupts
+        // Without this, packets that arrived during socket close race condition accumulate
+        if let Some(socket) = table.get_mut(sock) {
+            for _skb in socket.rx_queue.drain() {
+                // Drain silently
+            }
+        }
 
         // Check if we should enable interrupt (just bound first socket)
         table.bound_count() == 1
     }; // SOCKET_TABLE lock dropped here
 
-    // Step 2: Enable GIC interrupt OUTSIDE the SOCKET_TABLE lock
+    // Step 2: Drain GENET RX ring and enable GIC interrupt OUTSIDE the SOCKET_TABLE lock
     // This prevents deadlock if interrupt fires immediately and tries to route packets
+    // Note: Skip in test mode - GENET hardware not available in QEMU
+    #[cfg(not(test))]
     if enable_interrupt {
-        crate::println!("[SOCKET] First socket bound, enabling GENET interrupts...");
-        use crate::drivers::gic::GIC;
-        use crate::drivers::gic::irq::GENET_0;
-
-        // Enable interrupt (brief GIC lock, drop before printing)
+        // CRITICAL: Drain any packets that accumulated in GENET RX ring while interrupts were disabled
+        // Without this, enabling interrupts causes immediate flood of stale packets
         {
+            let mut genet = GENET.lock();
+            genet.drain_rx_ring();
+        } // GENET lock dropped
+
+        // Now enable interrupt
+        {
+            use crate::drivers::gic::GIC;
+            use crate::drivers::gic::irq::GENET_0;
             let gic = GIC.lock();
             gic.enable_interrupt(GENET_0);
         } // GIC lock dropped here
-
-        crate::println!("[SOCKET] GENET interrupts enabled");
     }
 
     Ok(())
@@ -202,7 +216,7 @@ pub fn recvfrom(sock: Socket, opts: &SocketOptions) -> Result<RecvFrom, SocketEr
 
     loop {
         // Try to dequeue packet
-        let packet_ref = {
+        let skb = {
             let table = SOCKET_TABLE.lock();
             let socket = table.get(sock).ok_or(SocketError::InvalidSocket)?;
 
@@ -214,18 +228,9 @@ pub fn recvfrom(sock: Socket, opts: &SocketOptions) -> Result<RecvFrom, SocketEr
         };
 
         // If packet available, return it
-        if let Some(pkt_ref) = packet_ref {
-            // Get packet data from pool
-            let data = {
-                use crate::net::packet_pool::PACKET_POOL;
-                let packet_data = PACKET_POOL.get(pkt_ref.buffer_id);
-                let data = packet_data[pkt_ref.offset..pkt_ref.offset + pkt_ref.length].to_vec();
-
-                // Free packet buffer
-                PACKET_POOL.free(pkt_ref.buffer_id);
-
-                data
-            };
+        if let Some(skb) = skb {
+            // Get packet data from sk_buff (already contains full frame)
+            let data = skb.data().to_vec();
 
             // Parse source address from packet
             // For AF_PACKET: Extract source MAC from Ethernet header
@@ -243,6 +248,7 @@ pub fn recvfrom(sock: Socket, opts: &SocketOptions) -> Result<RecvFrom, SocketEr
                 }
             };
 
+            // Arc<SkBuff> dropped here, refcount decremented
             return Ok(RecvFrom { addr, data });
         }
 
@@ -292,21 +298,28 @@ pub fn close(sock: Socket) -> Result<(), SocketError> {
 
     // Step 2: Disable GIC interrupt OUTSIDE the SOCKET_TABLE lock
     // This prevents deadlock if an interrupt tries to route packets while we're closing
+    // Note: Skip in test mode - GENET hardware not available in QEMU
+    #[cfg(not(test))]
     if disable_interrupt {
-        crate::println!("[SOCKET] Last socket closed, disabling GENET interrupts...");
         use crate::drivers::gic::GIC;
         use crate::drivers::gic::irq::GENET_0;
 
-        // Disable interrupt (brief GIC lock, drop before printing)
+        // Disable interrupt
         {
             let gic = GIC.lock();
             gic.disable_interrupt(GENET_0);
         } // GIC lock dropped here
-
-        crate::println!("[SOCKET] GENET interrupts disabled");
     }
 
     Ok(())
+}
+
+/// Get socket table statistics
+///
+/// Returns (total_allocated, bound_count, per_socket_queue_depths)
+/// where queue_depths is a Vec of (socket_id, queue_depth) tuples.
+pub fn socket_stats() -> (usize, usize, alloc::vec::Vec<(usize, usize)>) {
+    SOCKET_TABLE.lock().stats()
 }
 
 #[cfg(test)]

@@ -39,10 +39,10 @@ SECTIONS
     }
 
     /* Heap for dynamic memory allocation */
-    /* Reserve 8MB for heap after BSS */
+    /* Reserve 64MB for heap after BSS (Pi 4 has 1-8 GB RAM) */
     . = ALIGN(16);
     __heap_start = .;
-    . += 0x800000;
+    . += 0x4000000;
     __heap_end = .;
 
     /* Stack grows downward from high memory */

@@ -244,6 +244,11 @@ pub fn init(dtb_ptr: *const u8) {
         ALLOCATOR.heap_size() / 1024 / 1024
     );
 
+    // Initialize protocol registry (ARP, ICMP, UDP, TCP handlers)
+    // Must be called after heap init since handlers use Arc allocation
+    #[cfg(not(test))]
+    net::protocol::init_protocols();
+
     // Initialize Ethernet controller
     // Use device tree to detect if GENET hardware is present
     // This prevents crashes in QEMU which doesn't emulate GENET

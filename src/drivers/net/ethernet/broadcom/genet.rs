@@ -162,19 +162,28 @@ const UMAC_IRQ_TXDMA_MBDONE: u32 = 1 << 16; // TX DMA descriptor done
 // Source: Linux kernel drivers/net/ethernet/broadcom/genet/bcmgenet.h
 // The HFB filters packets in hardware before they reach RX descriptors,
 // preventing interrupt storms from unwanted traffic on busy networks.
+//
+// Future use: These constants are preserved for HFB filter implementation.
+// See TODO-HFB.md for implementation plan and enable_arp_filter() for example usage.
 
+#[allow(dead_code)]
 const GENET_HFB_OFF: usize = 0x8000;
 
 // HFB control registers (relative to GENET_HFB_OFF)
+#[allow(dead_code)]
 const HFB_CTRL: usize = 0x00; // Enable/disable HFB
+#[allow(dead_code)]
 const HFB_FLT_ENABLE_V3PLUS: usize = 0x04; // 32-bit filter enable mask
+#[allow(dead_code)]
 const HFB_FLT_LEN_V3PLUS: [usize; 8] = [
     // Filter length registers (4 filters each)
     0x0C, 0x10, 0x14, 0x18, 0x1C, 0x20, 0x24, 0x28,
 ];
+#[allow(dead_code)]
 const HFB_RXNFC_LKUP_CTRL: usize = 0x88; // Action on match (base, +4 per filter)
 
 // Filter memory starts at offset 0x200 from HFB base (32 bytes per filter)
+#[allow(dead_code)]
 const HFB_FLT_BASE: usize = 0x200;
 
 // ============================================================================
@@ -210,18 +219,27 @@ const MIB_RESET_TX: u32 = 1 << 2;
 const MIB_RESET_RUNT: u32 = 1 << 1;
 
 // MIB Counter Registers
+// Source: Linux kernel bcmgenet.h struct bcmgenet_rx_counters/bcmgenet_tx_counters
+//
+// The hardware MIB register block starts at 0x400, but the first 0x28 bytes (40 bytes)
+// contain packet size histogram counters (bcmgenet_pkt_counters: 10 u32 fields).
+// Main RX statistic counters start at 0x428 (MIB_BASE + 0x28).
 const MIB_BASE: usize = UMAC_OFF + 0x400;
+
+// TX counters (these were already correct)
 const MIB_TX_GOOD_PKTS: usize = UMAC_OFF + 0x4A8;
 const MIB_TX_GOOD_OCTETS: usize = UMAC_OFF + 0x4C0;
 const MIB_TX_MCAST_PKTS: usize = UMAC_OFF + 0x4AC;
 const MIB_TX_BCAST_PKTS: usize = UMAC_OFF + 0x4B0;
-const MIB_RX_GOOD_PKTS: usize = MIB_BASE + 0x08;
-const MIB_RX_GOOD_OCTETS: usize = MIB_BASE + 0xC0;
-const MIB_RX_UCAST_PKTS: usize = MIB_BASE + 0xD0;
-const MIB_RX_MCAST_PKTS: usize = MIB_BASE + 0x0C;
-const MIB_RX_BCAST_PKTS: usize = MIB_BASE + 0x10;
-const MIB_RX_FCS_ERR: usize = MIB_BASE + 0x28;
-const MIB_RX_ALIGN_ERR: usize = MIB_BASE + 0x30;
+
+// RX counters (corrected to match Linux kernel struct layout)
+const MIB_RX_GOOD_PKTS: usize = MIB_BASE + 0x28; // Hardware: 0x428 (pkt field)
+const MIB_RX_GOOD_OCTETS: usize = MIB_BASE + 0x2C; // Hardware: 0x42C (bytes field)
+const MIB_RX_MCAST_PKTS: usize = MIB_BASE + 0x30; // Hardware: 0x430 (mca field)
+const MIB_RX_BCAST_PKTS: usize = MIB_BASE + 0x34; // Hardware: 0x434 (bca field)
+const MIB_RX_FCS_ERR: usize = MIB_BASE + 0x38; // Hardware: 0x438 (fcs field)
+const MIB_RX_ALIGN_ERR: usize = MIB_BASE + 0x48; // Hardware: 0x448 (aln field)
+const MIB_RX_UCAST_PKTS: usize = MIB_BASE + 0xD0; // Hardware: 0x4D0 (rxund field)
 
 // ============================================================================
 // MDIO Registers (for PHY access)
@@ -323,16 +341,28 @@ const DMA_DESC_ADDRESS_LO: usize = 0x04; // Low 32 bits of address at offset 4
 const DMA_DESC_ADDRESS_HI: usize = 0x08; // High 32 bits of address at offset 8
 
 // Length/Status field bits
-// Source: U-Boot bcmgenet.c DMA descriptor flags
+// Source: U-Boot bcmgenet.c, Linux bcmgenet.h
 const DMA_BUFLENGTH_SHIFT: u32 = 16;
 const DMA_BUFLENGTH_MASK: u32 = 0x0FFF;
-const DMA_OWN: u32 = 0x8000; // bit 15: Hardware owns descriptor
+
+// Descriptor ownership and packet boundary flags (upper bits)
+const DMA_OWN: u32 = 0x8000; // bit 15: Hardware owns descriptor (must be 0 to read)
 const DMA_EOP: u32 = 0x4000; // bit 14: End of packet
 const DMA_SOP: u32 = 0x2000; // bit 13: Start of packet
 #[allow(dead_code)] // Hardware spec: Wrap flag (not used - implicit via modulo arithmetic)
 const DMA_WRAP: u32 = 0x1000; // bit 12: Wrap to start of ring
+
+// TX-specific flags
 const DMA_TX_APPEND_CRC: u32 = 0x0040; // bit 6: Append CRC
 const DMA_TX_QTAG_SHIFT: u32 = 7;
+
+// RX error flags (lower bits 0-4 of length_status field)
+const DMA_RX_OV: u32 = 0x0001; // Buffer overflow
+const DMA_RX_CRC_ERROR: u32 = 0x0002; // FCS/CRC error
+const DMA_RX_RXER: u32 = 0x0004; // Receive error
+const DMA_RX_NO: u32 = 0x0008; // Alignment error
+const DMA_RX_LG: u32 = 0x0010; // Frame too large
+const DMA_RX_ERROR_MASK: u32 = DMA_RX_OV | DMA_RX_CRC_ERROR | DMA_RX_RXER | DMA_RX_NO | DMA_RX_LG;
 
 // ============================================================================
 // Cache Management Constants
@@ -759,6 +789,7 @@ impl GenetController {
     ///
     /// Source: Linux kernel drivers/net/ethernet/broadcom/genet/bcmgenet.c
     ///         Function: bcmgenet_hfb_create_rxnfc_filter()
+    #[allow(dead_code)] // Future use: Enable when implementing HFB filtering (see TODO-HFB.md)
     fn enable_arp_filter(&mut self) {
         // Filter 0: Match EtherType 0x0806 (ARP) at offset 12-13 in Ethernet frame
         let filter_id = 0;
@@ -985,10 +1016,10 @@ impl GenetController {
         println!("[GENET]   Unmasking RX DMA interrupt (bit 13)");
         self.write_reg(INTRL2_0_OFF + INTRL2_CPU_MASK_CLEAR, UMAC_IRQ_RXDMA_MBDONE);
 
-        // Verify interrupt mask (should be 0xFFFFDFFF - all masked except bit 13)
+        // Verify interrupt mask (bits 27-31 read as 0 - not implemented in hardware)
         let mask = self.read_reg(INTRL2_0_OFF + INTRL2_CPU_MASK_STATUS);
         println!(
-            "[GENET]   Interrupt mask: 0x{:08X} (expect 0xFFFFDFFF)",
+            "[GENET]   Interrupt mask: 0x{:08X} (bit 13 clear = RX enabled)",
             mask
         );
 
@@ -1113,6 +1144,65 @@ impl GenetController {
         Ok(())
     }
 
+    /// Drain all pending packets from RX ring without processing
+    ///
+    /// Used to discard stale packets that accumulated while interrupts were disabled.
+    /// This prevents flooding the socket queue with old packets when interrupts are re-enabled.
+    ///
+    /// CRITICAL: On busy networks, packets arrive continuously. We loop until the ring
+    /// is actually empty (PROD == CONS), which may require multiple passes if packets
+    /// arrive during draining. We limit to 1024 total iterations to prevent infinite loops.
+    ///
+    /// # Returns
+    /// Number of packets drained from RX ring
+    pub fn drain_rx_ring(&mut self) -> usize {
+        let mut drained = 0;
+        const MAX_DRAIN_ITERATIONS: usize = 1024;
+
+        // Log ring state BEFORE draining
+        let prod_before = (self.read_reg(RDMA_RING16_PROD_INDEX) & 0xFFFF) as usize;
+        let cons_before = self.rx_c_index;
+
+        // Keep draining until ring is empty OR we hit safety limit
+        while drained < MAX_DRAIN_ITERATIONS {
+            match self.receive_frame() {
+                Some(_) => {
+                    self.free_rx_buffer();
+                    drained += 1;
+                }
+                None => break, // Ring empty (PROD == CONS)
+            }
+        }
+
+        // Log ring state AFTER draining
+        let prod_after = (self.read_reg(RDMA_RING16_PROD_INDEX) & 0xFFFF) as usize;
+        let cons_after = self.rx_c_index;
+
+        // Debug output (first 3 drains only)
+        use core::sync::atomic::{AtomicU32, Ordering};
+        static DRAIN_COUNT: AtomicU32 = AtomicU32::new(0);
+        let drain_num = DRAIN_COUNT.fetch_add(1, Ordering::Relaxed);
+        if drain_num < 3 {
+            crate::println!(
+                "[GENET] Drain #{}: PROD {}→{}, CONS {}→{}, drained {} packets",
+                drain_num + 1,
+                prod_before,
+                prod_after,
+                cons_before,
+                cons_after,
+                drained
+            );
+            if prod_after != cons_after {
+                crate::println!(
+                    "[GENET] WARNING: Ring NOT empty after drain! {} packets remain",
+                    (prod_after + RING_SIZE - cons_after) % RING_SIZE
+                );
+            }
+        }
+
+        drained
+    }
+
     fn receive_frame(&mut self) -> Option<&[u8]> {
         if !self.initialized {
             return None;
@@ -1129,23 +1219,70 @@ impl GenetController {
         let desc_offset = RDMA_DESC_OFF + (self.rx_index * DMA_DESC_SIZE);
         let length_status = self.read_reg(desc_offset + DMA_DESC_LENGTH_STATUS);
 
+        // Check if hardware has finished writing this descriptor
+        // The DMA_OWN bit (0x8000) must be CLEAR (0) for CPU to safely read
+        // Source: U-Boot bcmgenet.c initialization sets DMA_OWN, HW clears when done
+        if (length_status & DMA_OWN) != 0 {
+            // Hardware still owns this descriptor - no valid packet yet
+            return None;
+        }
+
+        // Verify this is a complete single-buffer packet
+        // Both SOP (start) and EOP (end) must be set for valid packet
+        // Source: Linux bcmgenet driver drops packets missing these flags
+        if (length_status & (DMA_SOP | DMA_EOP)) != (DMA_SOP | DMA_EOP) {
+            // Fragmented packet or incomplete - drop it and advance past descriptor
+            self.free_rx_buffer();
+            return None;
+        }
+
         let length = ((length_status >> DMA_BUFLENGTH_SHIFT) & DMA_BUFLENGTH_MASK) as usize;
 
         // Validate received frame length
         if !(MIN_FRAME_SIZE..=RX_BUF_LENGTH).contains(&length) {
-            // Skip invalid frame
-            self.rx_index = (self.rx_index + 1) % RING_SIZE;
-            self.rx_c_index = (self.rx_c_index + 1) % RING_SIZE;
-            self.write_reg(RDMA_RING16_CONS_INDEX, self.rx_c_index as u32);
+            // Invalid length - return descriptor to hardware and skip
+            self.free_rx_buffer();
             return None;
         }
 
-        // Calculate buffer address and invalidate cache to see DMA writes
+        // Calculate buffer address
         let buffer_offset = self.rx_index * RX_BUF_LENGTH;
         // SAFETY: buffer_offset is guaranteed < RX_TOTAL_BUFSIZE by modulo operation on rx_index
         let buffer_start = unsafe { self.rxbuffer.as_ptr().add(buffer_offset) } as usize;
 
+        // Extract status flags from descriptor
+        let dma_flag = length_status & 0xFFFF;
+
+        // Check for hardware-detected errors and drop packet if ANY error flag set
+        // Source: Linux bcmgenet driver increments rx_errors and drops on error flags
+        if (dma_flag & DMA_RX_ERROR_MASK) != 0 {
+            // Log error for diagnostics (rare in practice with good cables/network)
+            // Note: RX_ERROR_COUNT is module-level static (see below)
+            use core::sync::atomic::Ordering;
+            let errors = RX_ERROR_COUNT.fetch_add(1, Ordering::Relaxed);
+
+            // Only log first 10 errors to avoid spam
+            if errors < 10 {
+                crate::println!(
+                    "[GENET] Dropping packet #{} with errors: status={:#010x}, flags={:#06x} (OV={} CRC={} RXER={} NO={} LG={})",
+                    errors + 1,
+                    length_status,
+                    dma_flag,
+                    (dma_flag & DMA_RX_OV) != 0,
+                    (dma_flag & DMA_RX_CRC_ERROR) != 0,
+                    (dma_flag & DMA_RX_RXER) != 0,
+                    (dma_flag & DMA_RX_NO) != 0,
+                    (dma_flag & DMA_RX_LG) != 0,
+                );
+            }
+
+            // Drop packet immediately - advance past bad descriptor
+            self.free_rx_buffer();
+            return None;
+        }
+
         // Invalidate cache to discard stale data and read DMA writes from DRAM
+        // Now safe to invalidate because we've verified descriptor ownership and no errors
         self.cache_invalidate(buffer_start, length);
 
         // Return slice (skip 2-byte padding from RBUF_ALIGN_2B)
@@ -1154,20 +1291,27 @@ impl GenetController {
     }
 
     fn free_rx_buffer(&mut self) {
-        // Flush cache for this RX buffer before returning it to hardware
-        // Source: U-Boot bcmgenet.c::bcmgenet_gmac_free_pkt()
-        let buffer_offset = self.rx_index * RX_BUF_LENGTH;
-        // SAFETY: buffer_offset is guaranteed < RX_TOTAL_BUFSIZE by modulo operation on rx_index
-        let buffer_start = unsafe { self.rxbuffer.as_ptr().add(buffer_offset) } as usize;
+        // Calculate descriptor offset for THIS buffer before advancing indices
+        let desc_offset = RDMA_DESC_OFF + (self.rx_index * DMA_DESC_SIZE);
 
-        // Flush cache to ensure any CPU writes are visible to DMA
-        self.cache_flush(buffer_start, RX_BUF_LENGTH);
+        // Re-initialize descriptor with DMA_OWN flag to return it to hardware
+        // This is CRITICAL - without this, hardware can't reuse the descriptor
+        // Source: U-Boot bcmgenet.c initialization pattern
+        let len_status = ((RX_BUF_LENGTH as u32) << DMA_BUFLENGTH_SHIFT) | DMA_OWN;
+        self.write_reg(desc_offset + DMA_DESC_LENGTH_STATUS, len_status);
+
+        // Ensure descriptor write completes before advancing index
+        // This prevents race where hardware sees CONS advanced but descriptor isn't ready
+        // SAFETY: DSB instruction has no side effects beyond memory ordering
+        unsafe {
+            core::arch::asm!("dsb sy", options(nostack));
+        }
 
         // Advance to next descriptor
         self.rx_index = (self.rx_index + 1) % RING_SIZE;
-        self.rx_c_index = (self.rx_c_index + 1) % RING_SIZE;
+        self.rx_c_index = (self.rx_c_index + 1) & 0xFFFF;
 
-        // Update hardware CONS_INDEX
+        // Update hardware CONS_INDEX to notify hardware descriptor is ready
         self.write_reg(RDMA_RING16_CONS_INDEX, self.rx_c_index as u32);
     }
 }
@@ -1192,7 +1336,7 @@ impl GenetController {
 pub fn handle_interrupt() {
     use core::sync::atomic::{AtomicU32, Ordering};
     static DEBUG_COUNT: AtomicU32 = AtomicU32::new(0);
-    let debug_num = DEBUG_COUNT.fetch_add(1, Ordering::Relaxed);
+    let _debug_num = DEBUG_COUNT.fetch_add(1, Ordering::Relaxed);
 
     let (packets_routed, packets_dropped) = {
         // CRITICAL: No println() while holding GENET lock - would deadlock with TX path
@@ -1219,19 +1363,15 @@ pub fn handle_interrupt() {
             let mut packet_count = 0;
 
             while let Some(frame_data) = genet.receive_frame() {
-                // SAFETY: frame_data points into GENET's static DMA buffer
-                // The packet pool will hold a reference to this data until all
-                // sockets are done processing it.
-                let frame_static: &'static [u8] = unsafe { core::mem::transmute(frame_data) };
-
-                // Route packet to socket layer
-                if unsafe { crate::net::router::route_packet(frame_static) } {
+                // Route packet to socket layer (copies to sk_buff, frees DMA buffer)
+                if crate::net::router::route_packet(frame_data) {
                     routed += 1;
                 } else {
                     dropped += 1;
                 }
 
-                // CRITICAL: Free RX buffer so hardware can reuse descriptor
+                // CRITICAL: Free RX buffer immediately after copy
+                // DMA descriptor can now be reused by hardware
                 genet.free_rx_buffer();
 
                 packet_count += 1;
@@ -1247,20 +1387,59 @@ pub fn handle_interrupt() {
     }; // Drop GENET lock BEFORE any println!
 
     // Log statistics outside lock (safe - no deadlock risk)
-    if packets_routed > 0 || packets_dropped > 0 {
-        static IRQ_COUNT: AtomicU32 = AtomicU32::new(0);
-        let total = IRQ_COUNT.fetch_add(1, Ordering::Relaxed);
+    // Note: IRQ_COUNT and CONSECUTIVE_IRQS are module-level statics (see below)
+    let total_irqs = IRQ_COUNT.fetch_add(1, Ordering::Relaxed);
 
-        // Rate-limited logging (first 10 interrupts only)
-        if total < 10 {
+    if packets_routed > 0 || packets_dropped > 0 {
+        // Rate-limited logging (first 5 interrupts only)
+        if total_irqs < 5 {
             println!(
                 "[GENET IRQ #{}] Routed {} pkts, dropped {}",
-                total + 1,
+                total_irqs + 1,
                 packets_routed,
                 packets_dropped
             );
         }
+        CONSECUTIVE_IRQS.store(0, Ordering::Relaxed);
+    } else {
+        // Track spurious interrupts (no packets processed)
+        let consec = CONSECUTIVE_IRQS.fetch_add(1, Ordering::Relaxed) + 1;
+        if consec <= 3 {
+            println!(
+                "[GENET IRQ #{}] Spurious interrupt (no packets)",
+                total_irqs + 1
+            );
+        }
+        if consec == 100 {
+            println!("[GENET IRQ] WARNING: 100 consecutive spurious interrupts!");
+        }
     }
+}
+
+// ============================================================================
+// Interrupt Statistics (Module-level for visibility)
+// ============================================================================
+
+/// Total GENET interrupts handled
+static IRQ_COUNT: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+/// Consecutive spurious interrupts (reset when packet received)
+static CONSECUTIVE_IRQS: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+/// Total RX errors (DMA flag errors)
+static RX_ERROR_COUNT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
+/// Get GENET interrupt statistics
+///
+/// Returns (total_interrupts, spurious_count, rx_errors)
+pub fn genet_interrupt_stats() -> (u32, u32, usize) {
+    use core::sync::atomic::Ordering;
+
+    (
+        IRQ_COUNT.load(Ordering::Relaxed),
+        CONSECUTIVE_IRQS.load(Ordering::Relaxed),
+        RX_ERROR_COUNT.load(Ordering::Relaxed),
+    )
 }
 
 // ============================================================================

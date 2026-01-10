@@ -165,6 +165,16 @@ impl fmt::Display for SocketAddr {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Socket(pub(super) usize);
 
+impl Socket {
+    /// Create Socket from socket ID (internal use only)
+    ///
+    /// # Safety
+    /// Caller must ensure the socket ID is valid in the global socket table.
+    pub(crate) const fn from_id(id: usize) -> Self {
+        Self(id)
+    }
+}
+
 /// Socket options for send/recv operations
 #[derive(Debug, Clone, Copy)]
 pub struct SocketOptions {

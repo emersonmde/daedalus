@@ -6,8 +6,10 @@
 pub mod arp;
 pub mod arp_diag;
 pub mod ethernet;
-pub mod packet_pool;
+pub mod protocol;
+pub mod protocols;
 pub mod router;
+pub mod skbuff;
 pub mod socket;
 
 // Re-export commonly used types
