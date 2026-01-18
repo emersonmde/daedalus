@@ -52,29 +52,11 @@ SECTIONS
     _stack_start = .;
 
     /*
-     * Network Kernel Staging Areas (NOT defined in linker script)
-     * ─────────────────────────────────────────────────────────────
-     * Staging Area A: 0x01000000 - 0x02000000 (16 MB)
-     * Staging Area B: 0x02000000 - 0x03000000 (16 MB)
-     *
-     * These regions are reserved for kexec-based network boot with
-     * ping-pong staging for rapid iteration:
-     *
-     * Bootstrap (SD card) → Stage at A → kexec to A
-     * Network kernel at A → Stage at B → kexec to B
-     * Network kernel at B → Stage at A → kexec to A
-     * (repeat: fetch v6 → kexec → fetch v7 → kexec → ...)
-     *
-     * This avoids overwriting the running kernel during development,
-     * enabling rapid iteration without SD card swaps.
-     *
-     * These regions are deliberately NOT in the linker script because:
-     * 1. They're only used transiently during kexec
-     * 2. Overlaps are prevented by runtime validation
-     * 3. Bootstrap kernel ends ~0x04280000, so no conflict
-     *
-     * See: src/arch/aarch64/kexec.rs for layout constants and ping-pong logic
-     *      src/boot_mode.rs for boot mode detection
+     * Network staging areas (not in linker script - used transiently by kexec):
+     *   0x01000000 - 0x02000000 (16 MB) - Area A
+     *   0x02000000 - 0x03000000 (16 MB) - Area B
+     * Ping-pong between A/B to avoid self-overwrite during network deployment.
+     * See src/arch/aarch64/kexec.rs for layout constants.
      */
 
     /* Discard unnecessary sections */

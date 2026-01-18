@@ -1,126 +1,50 @@
-//! Boot mode detection for bootstrap vs network kernel
-//!
-//! DaedalusOS supports two boot modes:
-//! - **Bootstrap**: Loaded from SD card at 0x00080000, performs network fetch
-//! - **Network**: Loaded from network at 0x01000000, runs full OS
-//!
-//! The same kernel binary can run in either mode. Mode is detected by examining
-//! the current program counter to determine which memory region we're executing from.
+//! Boot mode detection (SD card vs network staging area)
 
 use crate::arch::aarch64::kexec::layout;
 
-/// Boot mode of the current kernel
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BootMode {
-    /// Bootstrap mode: Kernel loaded from SD card at 0x00080000
-    ///
-    /// In this mode, the kernel performs minimal initialization and then:
-    /// 1. Initializes UART, networking, and basic subsystems
-    /// 2. Fetches a new kernel from the development server via HTTP
-    /// 3. Loads it to the staging area at 0x01000000
-    /// 4. Performs kexec to jump to the new kernel
-    Bootstrap,
-
-    /// Network mode: Kernel loaded from network at 0x01000000
-    ///
-    /// In this mode, the kernel runs normally with full functionality:
-    /// - Interactive shell
-    /// - All drivers and subsystems
-    /// - Network services
-    /// - Watchdog for crash recovery
-    Network,
+    Bootstrap, // SD card at 0x00080000
+    Network,   // Network staging (0x01000000 or 0x02000000)
 }
 
 impl BootMode {
-    /// Detect boot mode by examining current program counter
-    ///
-    /// This uses the `adr` instruction to get the current PC and determines
-    /// which memory region we're executing from.
-    ///
-    /// # Memory Layout
-    /// - 0x00080000 - 0x04280000: Bootstrap kernel region (~66 MB)
-    /// - 0x01000000 - 0x02000000: Network kernel staging area A (16 MB)
-    /// - 0x02000000 - 0x03000000: Network kernel staging area B (16 MB)
-    ///
-    /// Note: These regions don't overlap with bootstrap. Bootstrap ends around
-    /// 0x04280000, while network staging starts at 0x01000000.
-    ///
-    /// Ping-pong staging uses both A and B to avoid self-overwrite during
-    /// iterative development.
     pub fn detect() -> Self {
-        let pc = Self::read_pc();
-        Self::from_address(pc)
+        Self::from_address(Self::read_pc())
     }
 
-    /// Read current program counter
-    ///
-    /// Uses `adr` instruction which loads PC-relative address on ARM64.
-    /// Returns bootstrap address in tests (x86_64 host).
     #[cfg(target_arch = "aarch64")]
     fn read_pc() -> usize {
         let pc: usize;
-        // SAFETY: Reading the program counter is always safe. The `adr` instruction
-        // loads the address of the current instruction into a register. We use inline
-        // assembly because Rust doesn't provide a direct way to read PC.
-        //
-        // The `adr` instruction:
-        // - Loads PC-relative address (safe, no memory access)
-        // - Uses "." as the label (current location)
-        // - nomem: doesn't access memory
-        // - nostack: doesn't touch stack
-        // - preserves_flags: doesn't modify condition flags
         unsafe {
-            core::arch::asm!(
-                "adr {}, .",
-                out(reg) pc,
-                options(nomem, nostack, preserves_flags)
-            );
+            core::arch::asm!("adr {}, .", out(reg) pc, options(nomem, nostack, preserves_flags));
         }
         pc
     }
 
-    /// Test stub for non-ARM64 platforms
-    ///
-    /// Returns bootstrap address so tests work on development machine (x86_64)
     #[cfg(not(target_arch = "aarch64"))]
     fn read_pc() -> usize {
         layout::BOOTSTRAP_KERNEL_BASE
     }
 
-    /// Determine boot mode from a program counter address
-    ///
-    /// This allows testing without inline assembly.
-    ///
-    /// Recognizes both staging areas (A and B) as network boot for
-    /// ping-pong staging support.
     pub fn from_address(addr: usize) -> Self {
-        // Network kernel staging area A: 0x01000000 - 0x02000000
-        let in_staging_a =
-            (layout::NETWORK_KERNEL_BASE_A..layout::NETWORK_KERNEL_END_A).contains(&addr);
-
-        // Network kernel staging area B: 0x02000000 - 0x03000000
-        let in_staging_b =
-            (layout::NETWORK_KERNEL_BASE_B..layout::NETWORK_KERNEL_END_B).contains(&addr);
-
-        if in_staging_a || in_staging_b {
+        let in_a = (layout::NETWORK_KERNEL_BASE_A..layout::NETWORK_KERNEL_END_A).contains(&addr);
+        let in_b = (layout::NETWORK_KERNEL_BASE_B..layout::NETWORK_KERNEL_END_B).contains(&addr);
+        if in_a || in_b {
             BootMode::Network
         } else {
-            // Everything else is bootstrap (primary location is 0x00080000)
             BootMode::Bootstrap
         }
     }
 
-    /// Returns true if this is bootstrap mode
     pub fn is_bootstrap(self) -> bool {
         matches!(self, BootMode::Bootstrap)
     }
 
-    /// Returns true if this is network mode
     pub fn is_network(self) -> bool {
         matches!(self, BootMode::Network)
     }
 
-    /// Get a human-readable description of the boot mode
     pub fn description(self) -> &'static str {
         match self {
             BootMode::Bootstrap => "Bootstrap (SD card)",
