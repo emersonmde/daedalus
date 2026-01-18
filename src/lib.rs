@@ -167,6 +167,18 @@ pub fn init(dtb_ptr: *const u8) {
     // Print startup sequence header
     println!();
     println!("DaedalusOS v{} booting...", env!("CARGO_PKG_VERSION"));
+
+    // Display boot mode (SD card vs network kexec)
+    let boot_mode = boot_mode::BootMode::detect();
+    match boot_mode {
+        boot_mode::BootMode::Bootstrap => {
+            println!("Boot mode: SD card (0x00080000)");
+            println!("Use 'fetch-kernel' to download updates from network");
+        }
+        boot_mode::BootMode::Network => {
+            println!("Boot mode: Network (0x01000000, kexec'd kernel)");
+        }
+    }
     println!();
 
     // Parse device tree from firmware

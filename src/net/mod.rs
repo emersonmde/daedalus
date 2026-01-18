@@ -6,6 +6,7 @@
 pub mod arp;
 pub mod arp_diag;
 pub mod ethernet;
+pub mod http;
 pub mod protocol;
 pub mod protocols;
 pub mod router;

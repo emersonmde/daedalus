@@ -131,6 +131,7 @@ fn execute_command(cmd: Command) {
             println!("  eth-stats      - Show Ethernet packet statistics");
             println!("  netstats       - Show network stack debug statistics");
             println!("  arp-probe      - Send ARP probe to test TX/RX (10.42.10.1)");
+            println!("  fetch-kernel   - Download kernel from dev server (10.42.10.100:8000)");
             println!();
             println!("Utilities:");
             println!("  echo           - Print arguments to console");
@@ -614,6 +615,43 @@ fn execute_command(cmd: Command) {
         "arp-probe" => {
             use crate::net::run_arp_probe_diagnostic;
             run_arp_probe_diagnostic();
+        }
+
+        "fetch-kernel" => {
+            use crate::arch::aarch64::kexec;
+            use crate::net::http;
+
+            // Hardcoded dev server IP (10.42.10.100:8000)
+            const DEV_SERVER: [u8; 4] = [10, 42, 10, 100];
+            const DEV_PORT: u16 = 8000;
+
+            println!("Fetching kernel from 10.42.10.100:8000...");
+
+            match http::get_binary(DEV_SERVER, DEV_PORT, "/kernel") {
+                Ok(kernel_data) => {
+                    println!("Downloaded {} bytes", kernel_data.len());
+
+                    // Stage kernel to network staging area
+                    unsafe {
+                        match kexec::stage_kernel(&kernel_data) {
+                            Ok(staging_addr) => {
+                                println!("Kernel staged at 0x{:08x}", staging_addr);
+                                println!("Run 'kexec 0x{:08x}' to boot it", staging_addr);
+                            }
+                            Err(e) => {
+                                println!("Failed to stage kernel: {:?}", e);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("Fetch failed: {:?}", e);
+                    println!("Make sure:");
+                    println!("  1. Dev server is running: cd daedalus-dev-server && cargo run -- ../target/.../kernel8.img");
+                    println!("  2. Network is configured: Pi at 10.42.10.42, Server at 10.42.10.100");
+                    println!("  3. Ethernet cable is connected");
+                }
+            }
         }
 
         "kexec" => {
