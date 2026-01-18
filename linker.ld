@@ -52,22 +52,29 @@ SECTIONS
     _stack_start = .;
 
     /*
-     * Network Kernel Staging Area (NOT defined in linker script)
-     * ──────────────────────────────────────────────────────────
-     * Physical Address: 0x01000000 - 0x02000000 (16 MB)
+     * Network Kernel Staging Areas (NOT defined in linker script)
+     * ─────────────────────────────────────────────────────────────
+     * Staging Area A: 0x01000000 - 0x02000000 (16 MB)
+     * Staging Area B: 0x02000000 - 0x03000000 (16 MB)
      *
-     * This region is reserved for kexec-based network boot:
-     * - Bootstrap kernel fetches new kernel from dev server via HTTP
-     * - Downloads are staged at 0x01000000
-     * - kexec disables MMU/caches and jumps to staged kernel
+     * These regions are reserved for kexec-based network boot with
+     * ping-pong staging for rapid iteration:
      *
-     * This region is deliberately NOT in the linker script because:
-     * 1. It's only used transiently during kexec
+     * Bootstrap (SD card) → Stage at A → kexec to A
+     * Network kernel at A → Stage at B → kexec to B
+     * Network kernel at B → Stage at A → kexec to A
+     * (repeat: fetch v6 → kexec → fetch v7 → kexec → ...)
+     *
+     * This avoids overwriting the running kernel during development,
+     * enabling rapid iteration without SD card swaps.
+     *
+     * These regions are deliberately NOT in the linker script because:
+     * 1. They're only used transiently during kexec
      * 2. Overlaps are prevented by runtime validation
      * 3. Bootstrap kernel ends ~0x04280000, so no conflict
      *
-     * See: src/arch/aarch64/kexec.rs for layout constants
-     *      src/boot_mode.rs for detection logic
+     * See: src/arch/aarch64/kexec.rs for layout constants and ping-pong logic
+     *      src/boot_mode.rs for boot mode detection
      */
 
     /* Discard unnecessary sections */

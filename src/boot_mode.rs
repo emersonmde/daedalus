@@ -39,10 +39,14 @@ impl BootMode {
     ///
     /// # Memory Layout
     /// - 0x00080000 - 0x04280000: Bootstrap kernel region (~66 MB)
-    /// - 0x01000000 - 0x02000000: Network kernel region (16 MB)
+    /// - 0x01000000 - 0x02000000: Network kernel staging area A (16 MB)
+    /// - 0x02000000 - 0x03000000: Network kernel staging area B (16 MB)
     ///
-    /// Note: These regions don't overlap. Bootstrap ends around 0x04280000,
-    /// while network staging starts at 0x01000000.
+    /// Note: These regions don't overlap with bootstrap. Bootstrap ends around
+    /// 0x04280000, while network staging starts at 0x01000000.
+    ///
+    /// Ping-pong staging uses both A and B to avoid self-overwrite during
+    /// iterative development.
     pub fn detect() -> Self {
         let pc = Self::read_pc();
         Self::from_address(pc)
@@ -50,7 +54,9 @@ impl BootMode {
 
     /// Read current program counter
     ///
-    /// Uses `adr` instruction which loads PC-relative address
+    /// Uses `adr` instruction which loads PC-relative address on ARM64.
+    /// Returns bootstrap address in tests (x86_64 host).
+    #[cfg(target_arch = "aarch64")]
     fn read_pc() -> usize {
         let pc: usize;
         // SAFETY: Reading the program counter is always safe. The `adr` instruction
@@ -73,12 +79,30 @@ impl BootMode {
         pc
     }
 
+    /// Test stub for non-ARM64 platforms
+    ///
+    /// Returns bootstrap address so tests work on development machine (x86_64)
+    #[cfg(not(target_arch = "aarch64"))]
+    fn read_pc() -> usize {
+        layout::BOOTSTRAP_KERNEL_BASE
+    }
+
     /// Determine boot mode from a program counter address
     ///
-    /// This allows testing without inline assembly
+    /// This allows testing without inline assembly.
+    ///
+    /// Recognizes both staging areas (A and B) as network boot for
+    /// ping-pong staging support.
     pub fn from_address(addr: usize) -> Self {
-        // Network kernel staging area: 0x01000000 - 0x02000000
-        if (layout::NETWORK_KERNEL_BASE..layout::NETWORK_KERNEL_END).contains(&addr) {
+        // Network kernel staging area A: 0x01000000 - 0x02000000
+        let in_staging_a =
+            (layout::NETWORK_KERNEL_BASE_A..layout::NETWORK_KERNEL_END_A).contains(&addr);
+
+        // Network kernel staging area B: 0x02000000 - 0x03000000
+        let in_staging_b =
+            (layout::NETWORK_KERNEL_BASE_B..layout::NETWORK_KERNEL_END_B).contains(&addr);
+
+        if in_staging_a || in_staging_b {
             BootMode::Network
         } else {
             // Everything else is bootstrap (primary location is 0x00080000)
@@ -125,19 +149,32 @@ mod tests {
 
     #[test_case]
     fn test_network_mode_detection() {
-        // Addresses in network staging region should be detected as Network
+        // Addresses in network staging region A should be detected as Network
         assert_eq!(BootMode::from_address(0x01000000), BootMode::Network);
         assert_eq!(BootMode::from_address(0x01500000), BootMode::Network);
         assert_eq!(BootMode::from_address(0x01FFFFFF), BootMode::Network);
+
+        // Addresses in network staging region B should be detected as Network
+        assert_eq!(BootMode::from_address(0x02000000), BootMode::Network);
+        assert_eq!(BootMode::from_address(0x02500000), BootMode::Network);
+        assert_eq!(BootMode::from_address(0x02FFFFFF), BootMode::Network);
     }
 
     #[test_case]
     fn test_boundary_conditions() {
         // Test boundaries between regions
         assert_eq!(BootMode::from_address(0x00FFFFFF), BootMode::Bootstrap);
+
+        // Staging area A: 0x01000000 - 0x02000000
         assert_eq!(BootMode::from_address(0x01000000), BootMode::Network);
         assert_eq!(BootMode::from_address(0x01FFFFFF), BootMode::Network);
-        assert_eq!(BootMode::from_address(0x02000000), BootMode::Bootstrap);
+
+        // Staging area B: 0x02000000 - 0x03000000
+        assert_eq!(BootMode::from_address(0x02000000), BootMode::Network);
+        assert_eq!(BootMode::from_address(0x02FFFFFF), BootMode::Network);
+
+        // After staging area B
+        assert_eq!(BootMode::from_address(0x03000000), BootMode::Bootstrap);
     }
 
     #[test_case]

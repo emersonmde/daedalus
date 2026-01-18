@@ -647,8 +647,12 @@ fn execute_command(cmd: Command) {
                 Err(e) => {
                     println!("Fetch failed: {:?}", e);
                     println!("Make sure:");
-                    println!("  1. Dev server is running: cd daedalus-dev-server && cargo run -- ../target/.../kernel8.img");
-                    println!("  2. Network is configured: Pi at 10.42.10.42, Server at 10.42.10.100");
+                    println!(
+                        "  1. Dev server is running: cd daedalus-dev-server && cargo run -- ../target/.../kernel8.img"
+                    );
+                    println!(
+                        "  2. Network is configured: Pi at 10.42.10.42, Server at 10.42.10.100"
+                    );
                     println!("  3. Ethernet cable is connected");
                 }
             }

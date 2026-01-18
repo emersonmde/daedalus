@@ -9,8 +9,8 @@
 //! This is sufficient for fetching kernel binaries from the development server.
 
 extern crate alloc;
-use alloc::vec::Vec;
 use crate::println;
+use alloc::vec::Vec;
 
 /// HTTP client errors
 #[derive(Debug, Clone, Copy)]
@@ -53,11 +53,7 @@ pub enum HttpError {
 /// Client: GET /kernel\r\n
 /// Server: <binary data><close connection>
 /// ```
-pub fn get_binary(
-    server_ip: [u8; 4],
-    port: u16,
-    path: &str,
-) -> Result<Vec<u8>, HttpError> {
+pub fn get_binary(server_ip: [u8; 4], port: u16, path: &str) -> Result<Vec<u8>, HttpError> {
     // TODO: Implement HTTP client using smoltcp
     //
     // Implementation plan:
@@ -75,9 +71,10 @@ pub fn get_binary(
     //
     // For now, return error - will implement in hardware testing phase
 
-    println!("HTTP: Would fetch {}.{}.{}.{}:{}{}",
-        server_ip[0], server_ip[1], server_ip[2], server_ip[3],
-        port, path);
+    println!(
+        "HTTP: Would fetch {}.{}.{}.{}:{}{}",
+        server_ip[0], server_ip[1], server_ip[2], server_ip[3], port, path
+    );
 
     Err(HttpError::NetworkNotReady)
 }
