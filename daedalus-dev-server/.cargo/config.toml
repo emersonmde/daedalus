@@ -1,0 +1,8 @@
+# Override the workspace default target for dev server
+# Dev server runs on the host (macOS/Linux), not on the Pi
+# So we need to use the host's native target with std library, not aarch64-daedalus
+
+[build]
+# Explicitly set host target to override workspace aarch64-daedalus
+target = "aarch64-apple-darwin"
+target-dir = "../target/dev-server"

@@ -5,6 +5,9 @@
 
 use core::arch::asm;
 
+extern crate alloc;
+use alloc::vec::Vec;
+
 /// Exit codes for QEMU test runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
@@ -56,5 +59,106 @@ pub fn exit(exit_code: ExitCode) -> ! {
             in(reg) &block,
             options(noreturn)
         );
+    }
+}
+
+/// Semihosting file operations for QEMU
+pub mod semihosting {
+    use super::*;
+    use alloc::vec;
+
+    #[derive(Debug)]
+    pub enum SemihostingError {
+        OpenFailed,
+        ReadFailed,
+        FileTooLarge,
+    }
+
+    /// Read entire file using QEMU semihosting
+    ///
+    /// This only works in QEMU with -semihosting flag.
+    /// On real hardware, this will fail.
+    pub fn read_file(filename: &str) -> Result<Vec<u8>, SemihostingError> {
+        // SYS_OPEN (0x01) - Open file
+        // Parameters: [filename_ptr, filename_len, mode]
+        // mode: 0 = read, 4 = binary read
+        let fd = unsafe {
+            let params = [filename.as_ptr() as u64, filename.len() as u64, 0u64];
+
+            let result: i64;
+            asm!(
+                "mov w0, #0x01",           // SYS_OPEN
+                "mov x1, {0}",             // x1 = params
+                "hlt #0xf000",             // Semihosting call
+                "mov {1}, x0",             // Get return value
+                in(reg) params.as_ptr(),
+                out(reg) result,
+            );
+
+            if result < 0 {
+                return Err(SemihostingError::OpenFailed);
+            }
+            result as u64
+        };
+
+        // SYS_FLEN (0x0C) - Get file length
+        let file_len = unsafe {
+            let result: i64;
+            asm!(
+                "mov w0, #0x0C",           // SYS_FLEN
+                "mov x1, {0}",             // x1 = file descriptor
+                "hlt #0xf000",
+                "mov {1}, x0",
+                in(reg) fd,
+                out(reg) result,
+            );
+
+            if result < 0 {
+                return Err(SemihostingError::ReadFailed);
+            }
+            result as usize
+        };
+
+        // Limit file size to 10 MB for safety
+        if file_len > 10 * 1024 * 1024 {
+            return Err(SemihostingError::FileTooLarge);
+        }
+
+        // Allocate initialized buffer (clippy::uninit_vec)
+        let mut buffer = vec![0u8; file_len];
+
+        // SYS_READ (0x06) - Read from file
+        let bytes_read = unsafe {
+            let params = [fd, buffer.as_mut_ptr() as u64, buffer.len() as u64];
+
+            let result: i64;
+            asm!(
+                "mov w0, #0x06",           // SYS_READ
+                "mov x1, {0}",             // x1 = params
+                "hlt #0xf000",
+                "mov {1}, x0",
+                in(reg) params.as_ptr(),
+                out(reg) result,
+            );
+
+            result
+        };
+
+        // SYS_CLOSE (0x02) - Close file
+        unsafe {
+            asm!(
+                "mov w0, #0x02",           // SYS_CLOSE
+                "mov x1, {0}",             // x1 = file descriptor
+                "hlt #0xf000",
+                in(reg) fd,
+            );
+        }
+
+        // Check if we read the expected amount
+        if bytes_read < 0 || bytes_read as usize != file_len {
+            return Err(SemihostingError::ReadFailed);
+        }
+
+        Ok(buffer)
     }
 }

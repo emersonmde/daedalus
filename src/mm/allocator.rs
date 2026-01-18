@@ -120,6 +120,41 @@ impl BumpAllocator {
         // 5. If init() wasn't called, result is 0 - 0 = 0 (safe but semantically incorrect)
         unsafe { *self.heap_end.get() - *self.next.lock() }
     }
+
+    /// Reset the allocator to initial state (all allocations freed)
+    ///
+    /// This is useful for kexec and other scenarios where you want to start fresh
+    /// without reinitializing the heap bounds.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure:
+    /// - No references to heap-allocated objects exist after this call
+    /// - All heap-allocated objects are dropped or forgotten before calling
+    /// - This is typically only safe when transferring control to a new kernel (kexec)
+    ///   or during very early boot scenarios
+    ///
+    /// # Example Use Case
+    ///
+    /// Before kexec to a new kernel:
+    /// ```ignore
+    /// unsafe {
+    ///     ALLOCATOR.reset();  // Clear all allocations
+    ///     kexec::kexec(...);  // Jump to new kernel with clean heap
+    /// }
+    /// ```
+    pub unsafe fn reset(&self) {
+        // SAFETY: Resetting the allocator is safe in this implementation because:
+        // 1. The Mutex ensures exclusive access to `next`
+        // 2. We're just moving the `next` pointer back to heap_start
+        // 3. The caller guarantees no live references to heap objects exist
+        // 4. Heap bounds (heap_start, heap_end) remain unchanged
+        // 5. This effectively "frees" all allocations in bulk
+        unsafe {
+            let heap_start = *self.heap_start.get();
+            *self.next.lock() = heap_start;
+        }
+    }
 }
 
 unsafe impl GlobalAlloc for BumpAllocator {

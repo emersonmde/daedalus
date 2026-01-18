@@ -51,6 +51,25 @@ SECTIONS
     . += 0x200000;
     _stack_start = .;
 
+    /*
+     * Network Kernel Staging Area (NOT defined in linker script)
+     * ──────────────────────────────────────────────────────────
+     * Physical Address: 0x01000000 - 0x02000000 (16 MB)
+     *
+     * This region is reserved for kexec-based network boot:
+     * - Bootstrap kernel fetches new kernel from dev server via HTTP
+     * - Downloads are staged at 0x01000000
+     * - kexec disables MMU/caches and jumps to staged kernel
+     *
+     * This region is deliberately NOT in the linker script because:
+     * 1. It's only used transiently during kexec
+     * 2. Overlaps are prevented by runtime validation
+     * 3. Bootstrap kernel ends ~0x04280000, so no conflict
+     *
+     * See: src/arch/aarch64/kexec.rs for layout constants
+     *      src/boot_mode.rs for detection logic
+     */
+
     /* Discard unnecessary sections */
     /DISCARD/ : {
         *(.comment)

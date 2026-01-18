@@ -138,6 +138,7 @@ fn execute_command(cmd: Command) {
             println!();
             println!("Testing:");
             println!("  exception      - Trigger a breakpoint exception");
+            println!("  kexec <addr>   - Jump to kernel at address (DANGEROUS!)");
         }
 
         "echo" => {
@@ -613,6 +614,68 @@ fn execute_command(cmd: Command) {
         "arp-probe" => {
             use crate::net::run_arp_probe_diagnostic;
             run_arp_probe_diagnostic();
+        }
+
+        "kexec" => {
+            use crate::arch::aarch64::kexec;
+            use crate::boot_mode::BootMode;
+
+            let addr_str = cmd.args.trim();
+            if addr_str.is_empty() {
+                println!("Usage: kexec <address>");
+                println!("Example: kexec 0x01000000");
+                println!();
+                println!("WARNING: This command will jump to arbitrary memory and never return!");
+                println!("         Only use for testing kexec functionality.");
+                return;
+            }
+
+            // Parse address (support hex with 0x prefix or decimal)
+            let addr = if let Some(hex) = addr_str.strip_prefix("0x") {
+                usize::from_str_radix(hex, 16)
+            } else if let Some(hex) = addr_str.strip_prefix("0X") {
+                usize::from_str_radix(hex, 16)
+            } else {
+                addr_str.parse::<usize>()
+            };
+
+            match addr {
+                Ok(addr) => {
+                    println!("Performing kexec to address 0x{:08X}", addr);
+                    println!("Current boot mode: {}", BootMode::detect());
+                    println!();
+                    println!("WARNING: System will jump to new kernel in 3 seconds...");
+
+                    // Give user time to see the message
+                    for i in (1..=3).rev() {
+                        SystemTimer::delay_ms(1000);
+                        println!("  {}...", i);
+                    }
+
+                    println!("Jumping to new kernel!");
+                    println!();
+
+                    // Get current DTB pointer from device tree module
+                    // We stored this during boot, so it should be available
+                    let dtb_ptr = crate::dt::get_dtb_pointer();
+
+                    // SAFETY: This is EXTREMELY unsafe! We're jumping to arbitrary memory.
+                    // The user has been warned, and this is a test command.
+                    // In a real system, we would validate the kernel before jumping.
+                    unsafe {
+                        kexec::kexec(
+                            addr,
+                            4 * 1024 * 1024, // Assume 4MB kernel (validation will check)
+                            dtb_ptr,
+                        );
+                    }
+                    // Never returns
+                }
+                Err(_) => {
+                    println!("Error: Invalid address '{}'", addr_str);
+                    println!("Address must be a hex number (0x...) or decimal number");
+                }
+            }
         }
 
         _ => {

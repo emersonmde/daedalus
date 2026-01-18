@@ -18,6 +18,7 @@
 extern crate alloc;
 
 pub mod arch;
+pub mod boot_mode;
 pub mod drivers;
 pub mod dt;
 pub mod mm;
@@ -150,6 +151,9 @@ fn init_ethernet(hw: &Option<dt::HardwareInfo>) {
 ///
 /// * `dtb_ptr` - Pointer to Device Tree Blob passed by firmware in x0 register
 pub fn init(dtb_ptr: *const u8) {
+    // Store DTB pointer for kexec operations
+    dt::store_dtb_pointer(dtb_ptr);
+
     // Initialize MMU first for memory protection
     // SAFETY: Called exactly once during kernel initialization.
     // Identity mapping ensures all existing code/data addresses remain valid.

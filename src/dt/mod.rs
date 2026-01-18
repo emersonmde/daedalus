@@ -388,3 +388,35 @@ pub fn bus_to_physical(bus_addr: usize) -> usize {
         addr => addr,
     }
 }
+
+/// Global storage for DTB pointer passed by firmware
+///
+/// This stores the original DTB pointer passed in x0 by the firmware.
+/// It's needed for kexec operations to pass the DTB to the new kernel.
+///
+/// Using AtomicUsize for thread-safe write-once storage (written during init,
+/// read anytime after).
+use core::sync::atomic::{AtomicUsize, Ordering};
+
+static DTB_POINTER: AtomicUsize = AtomicUsize::new(0);
+
+/// Store the DTB pointer for later use (should be called once during init)
+pub fn store_dtb_pointer(dtb_ptr: *const u8) {
+    DTB_POINTER.store(dtb_ptr as usize, Ordering::Release);
+}
+
+/// Get the stored DTB pointer
+///
+/// Returns the DTB pointer that was passed by firmware during boot.
+/// This is used by kexec to pass the DTB to the new kernel.
+///
+/// # Panics
+///
+/// Panics if called before `store_dtb_pointer` has been called.
+pub fn get_dtb_pointer() -> usize {
+    let ptr = DTB_POINTER.load(Ordering::Acquire);
+    if ptr == 0 {
+        panic!("DTB pointer not initialized - call store_dtb_pointer during init");
+    }
+    ptr
+}

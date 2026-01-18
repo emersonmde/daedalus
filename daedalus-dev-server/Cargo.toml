@@ -1,0 +1,10 @@
+[package]
+name = "daedalus-dev-server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# No dependencies needed - using only std library
+# std::net::TcpListener for HTTP server
+# std::io for file I/O
+# std::env for command-line args
