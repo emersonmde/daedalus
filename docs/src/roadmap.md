@@ -14,6 +14,16 @@ DaedalusOS development phases and milestones.
 
 **Phase 4 In Progress** 🔄 - Networking Stack
 **Milestone #14 Complete** ✅ - Interrupt-Driven Networking
+
+**Network Boot System In Progress** 🔧 - Development Workflow Improvement
+- Kexec foundation for hot kernel replacement (3ae70ee)
+- HTTP/0.9 client + fetch-kernel command (3ee82f9)
+- Ping-pong staging for iterative development (388d340)
+- Code cleanup - removed AI verbosity (803e41d)
+- Status: Software complete, awaiting hardware testing
+- See: `~/.claude/plans/lazy-jumping-willow.md` for full implementation plan
+
+**Current Features:**
 - Working REPL with command parsing and shell history
 - Exception vector table with register dumps
 - 8 MB heap with bump allocator
@@ -34,7 +44,7 @@ DaedalusOS development phases and milestones.
 - **Interrupt-driven packet routing** from GENET RX to sockets
 - Shell commands: `eth-stats`, `netstats`, `arp-probe` (full end-to-end test)
 
-**Next**: Milestone #15 - ARP Responder
+**Next**: Milestone #15 - ARP Responder OR Network Boot Hardware Testing
 
 ## Phase 1: Interactive Shell ✅ COMPLETE
 
@@ -157,6 +167,81 @@ DaedalusOS development phases and milestones.
 - HTTP/1.1 client (GET/POST)
 - Simple HTTP server for device control
 - Shell commands: `ping`, `http-get`, `gpio-server`
+
+## Network Boot Development System 🔧 IN PROGRESS
+
+**Goal**: Transform development workflow from SD card swaps to network-based deployment
+
+**Current Pain**: Build (10s) + SD write (5s) + SD swap (30s) + boot (2s) = 47s/iteration
+**Target**: Build (10s) + network deploy (0.1s) + boot (2s) = 12s/iteration (4x faster)
+
+**Implementation Status**: Software complete, awaiting hardware testing
+
+### Completed Work (4 commits)
+
+**Commit 3ae70ee**: Kexec Foundation
+- Assembly stub for hot kernel replacement (disable MMU/IRQs, jump to new kernel)
+- Memory layout: Bootstrap at 0x00080000, network staging at 0x01000000
+- Boot mode detection (PC-based: SD card vs network)
+- Shell command: `kexec <address>` for manual kernel jumping
+- Heap reset on kexec to provide clean state for new kernel
+- Tests: All validation, boot mode detection passing (104/104 tests)
+
+**Commit 3ee82f9**: HTTP Client + Shell Integration
+- HTTP/0.9 client API (placeholder, awaits smoltcp Device wrapper)
+- Added smoltcp v0.11 dependency (proto-ipv4, socket-tcp, medium-ethernet)
+- Shell command: `fetch-kernel` downloads from 10.42.10.100:8000
+- Automatic kernel staging with ping-pong address selection
+- Dev server workspace: `daedalus-dev-server` (Rust HTTP server on port 8000)
+- Tests: HTTP request formatting, all existing tests passing
+
+**Commit 388d340**: Ping-Pong Staging
+- Dual staging areas: 0x01000000 (A) and 0x02000000 (B)
+- Automatic address selection based on current PC (avoids self-overwrite)
+- Workflow: Bootstrap→A, A→B, B→A (enables rapid iteration)
+- Updated boot mode detection to recognize both staging areas
+- Linker script documentation of memory layout
+- Tests: Staging area validation, ping-pong logic, all passing
+
+**Commit 803e41d**: Code Cleanup
+- Removed 386 lines of AI-generated verbosity
+- Condensed module/function documentation to essentials
+- Removed redundant comments and safety explanations
+- Professional kernel coding standards
+- No behavior changes, pure documentation cleanup
+
+### Architecture
+
+```
+Dev Machine (10.42.10.100)          Raspberry Pi 4 (10.42.10.42)
+┌─────────────────────┐             ┌──────────────────────────┐
+│ daedalus-dev-server │◄────────────│ fetch-kernel command     │
+│ HTTP :8000          │  GET /kernel│ (downloads to staging)   │
+│ Serves kernel8.img  │────────────►│ kexec 0x01000000         │
+└─────────────────────┘             │ (jumps to new kernel)    │
+                                    └──────────────────────────┘
+```
+
+### Workflow
+1. Write initial kernel (v5) to SD card → boot
+2. Shell: `fetch-kernel` → downloads v6 to 0x01000000
+3. Shell: `kexec 0x01000000` → jump to v6
+4. Shell: `fetch-kernel` → downloads v7 to 0x02000000 (ping-pong)
+5. Shell: `kexec 0x02000000` → jump to v7
+6. Like v7? Write to SD → continue with v8, v9...
+
+### Pending Work
+- **Phase 2**: HTTP client implementation (requires smoltcp Device wrapper for GENET)
+- **Phase 4**: Hardware testing (fetch-kernel + kexec workflow)
+- **Phase 5**: Watchdog driver for crash recovery (optional)
+- **Phase 6**: Network shell backend (TCP shell access, optional)
+- **Phase 7**: Automation scripts (network-deploy.sh, hardware-test.sh)
+
+### References
+- Full plan: `~/.claude/plans/lazy-jumping-willow.md`
+- Commits: 3ae70ee, 3ee82f9, 388d340, 803e41d
+- Files: `src/arch/aarch64/kexec.{rs,s}`, `src/boot_mode.rs`, `src/net/http.rs`
+- Dev server: `daedalus-dev-server/src/main.rs`
 
 ## Phase 5: Advanced Features (Future Self-Implementation)
 
